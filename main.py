@@ -3,15 +3,19 @@
 # 1. 增加百度图片搜索接口 done
 # 2. 增加本地图片选择 done
 # 3. 优化gif显示
-# 4. 配音,文字->语音
+# 4. 配音,文字->语音 done
 # 5. 表情包尺寸的统一问题
+# 6. 编辑保存防止异常退出工作丢失
+
+import base64
 import hashlib
 import json
 import os.path
 import shutil
 import time
+from urllib.parse import quote
 
-from PyQt5 import QtGui, QtWidgets
+from PyQt5 import QtWidgets
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from bs4 import BeautifulSoup
@@ -24,9 +28,38 @@ from moviepy.editor import *
 from conf import backgroundMusic, BaiduButton, DoutulaButton
 
 
+# 利用百度语音合成进行配音
+def getBaiDuAudio(text):
+    url = 'https://cloud.baidu.com/aidemo'
+    data = 'type=tns&per=4105&spd=8&pit=7&vol=5&aue=6&tex=' + quote(text)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
+               'Content-Type': 'application/x-www-form-urlencoded',
+               'Accept': '*/*',
+               'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'
+               }
+    res = requests.post(url, data=data, headers=headers, verify=False)
+    if res.status_code != 200:
+        return None
+    res = json.loads(res.text)
+    if res['msg'] != 'success':
+        return None
+    data = res['data'].replace('data:audio/x-mpeg;base64,', '')
+    if ',' in data:
+        data = data[:data.find(',')]
+    data = base64.b64decode(data)
+
+    md5 = hashlib.md5()
+    md5.update(data)
+    filename = md5.hexdigest() + '.mp3'
+    filename = os.path.join('tmp', filename)
+    with open(filename, 'wb') as f:
+        f.write(data)
+    return filename
+
+
 # 生成视频线程
 class genVideoThread(QThread):
-    signal = pyqtSignal()
+    signal = pyqtSignal(str)
 
     def __init__(self, sections):
         super().__init__()
@@ -47,21 +80,34 @@ class genVideoThread(QThread):
             else:
                 clip = ImageClip(imgPath)
             for txt in texts:
-                txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=60, align='South')
+                txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=50, align='South')
+                txtAudio = getBaiDuAudio(txt)
+                if txtAudio is None:
+                    print('get the audio of {} failed!'.format(txt))
+                    continue
+                txtAudio = AudioFileClip(txtAudio)
                 cvc = CompositeVideoClip([clip.set_position(('center', 'center')),
                                           txtClip.set_position(('center', 0.85), relative=True)],
-                                         size=screensize).subclip(0, duration_time)
+                                         size=screensize).subclip(0, txtAudio.duration)
+                cvc = cvc.set_audio(txtAudio)
                 videoClips.append(cvc)
         final_clip = concatenate_videoclips(videoClips)
+        # 获取原视频声音
+        audio = final_clip.audio
+
         # 整体背景音乐
         audioClip = AudioFileClip(backgroundMusic)
         if audioClip.duration > final_clip.duration:
-            audioClip = audioClip.subclip(0, final_clip.duration)
+            audioClip = audioClip.subclip(0, audio.duration)
         elif audioClip.duration < final_clip.duration:
-            audioClip = afx.audio_loop(audioClip, duration=final_clip.duration)
-        final_clip = final_clip.set_audio(audioClip)
-        final_clip.write_videofile('coolTextEffects.avi', fps=25, codec='mpeg4')
-        self.signal.emit()
+            audioClip = afx.audio_loop(audioClip, duration=audio.duration)
+
+        # 声音结合起来
+        audio = CompositeAudioClip([audio, audioClip])
+        final_clip = final_clip.set_audio(audio)
+        filename = os.path.join('out', '{}.avi'.format(int(time.time())))
+        final_clip.write_videofile(filename, fps=25, codec='mpeg4')
+        self.signal.emit(filename)
 
 
 # 获取网络表情包线程
@@ -189,6 +235,7 @@ class addImgThread(QThread):
                 self.signal.emit(path)
 
 
+
 class MainDialog(QDialog):
     def __init__(self, parent=None):
         super(QDialog, self).__init__(parent)
@@ -303,15 +350,16 @@ class MainDialog(QDialog):
         genVideo_thread.start()
 
     # 视频生成完成
-    def genVideoFinished(self):
-        QtWidgets.QMessageBox.information(self, '提示', '生成完毕!', QMessageBox.Ok, QMessageBox.Close)
+    def genVideoFinished(self, filename):
+        QtWidgets.QMessageBox.information(self, '提示', '生成完毕!位置:{}'.format(filename), QMessageBox.Ok)
 
 
 if __name__ == '__main__':
     if os.path.exists('tmp'):
         shutil.rmtree('tmp')
         os.mkdir('tmp')
-
+    if not os.path.exists('out'):
+        os.mkdir('out')
     myapp = QApplication(sys.argv)
     myDlg = MainDialog()
     myDlg.show()
