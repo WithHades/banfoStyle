@@ -335,12 +335,13 @@ class MainDialog(QDialog):
                 self.ui.allText.appendPlainText(data['allText'])
                 self.ui.singleText.setText(self.allSentence[self.nowPos])
                 self.ui.searchText.setText(self.allSentence[self.nowPos])
-
+                '''
                 imgPath, _ = self.sections[self.nowPos]
                 if imgPath is not None:
                     self.ui.changeVideoImg(path=imgPath)
                 else:
                     self.ui.delVideoImg()
+                '''
                 self.lock.release()
             return
 
@@ -411,9 +412,8 @@ class MainDialog(QDialog):
         for file in os.listdir(self.materialName):
             if file.endswith('.bfs'):
                 os.rename(os.path.join(self.materialName, file),
-                          os.path.join(self.materialName, file[:file.rfind('.')] + '.bfs'))
+                          os.path.join(self.materialName, self.fileName[:self.fileName.rfind('.')] + '.bfs'))
         self.lock.release()
-
 
     # 上一句
     def last(self):
