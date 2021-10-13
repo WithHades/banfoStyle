@@ -3,7 +3,9 @@ import hashlib
 import json
 import logging
 import os.path
+import pickle
 import shutil
+import threading
 import time
 from urllib.parse import quote
 
@@ -22,6 +24,15 @@ from conf import backgroundMusic, BaiduButton, DoutulaButton
 
 # 利用百度语音合成进行配音
 def getBaiDuAudio(text, filePath):
+    # 生成文件名
+    md5 = hashlib.md5()
+    md5.update(text.encode('utf-8'))
+    fileName = md5.hexdigest() + '.mp3'
+    fileName = os.path.join(filePath, fileName)
+    # 文件已经存在的话直接返回
+    if os.path.exists(fileName):
+        return fileName
+
     url = 'https://cloud.baidu.com/aidemo'
     data = 'type=tns&per=4105&spd=8&pit=7&vol=5&aue=6&tex=' + quote(text)
     headers = {
@@ -40,11 +51,6 @@ def getBaiDuAudio(text, filePath):
     if ',' in data:
         data = data[:data.find(',')]
     data = base64.b64decode(data)
-
-    md5 = hashlib.md5()
-    md5.update(data)
-    fileName = md5.hexdigest() + '.mp3'
-    fileName = os.path.join(filePath, fileName)
     with open(fileName, 'wb') as f:
         f.write(data)
     return fileName
@@ -253,8 +259,41 @@ class MainDialog(QDialog):
         # 接收拖放对象
         self.setAcceptDrops(True)
 
+        self.fileName = None
         self.materialName = None
         self.oldMaterialName = None
+
+        # lock of save and read the bfs file
+        self.lock = threading.Lock()
+
+        # start save thread
+        self.saveThread = threading.Thread(target=self.save)
+        self.saveThread.start()
+
+    # 每隔5秒保存一次工程信息
+    def save(self):
+        while True:
+            self.lock.acquire()
+            if len(self.allSentence) <= 0:
+                self.lock.release()
+                time.sleep(5)
+                continue
+            # 窗口被关闭,触发异常退出线程
+            self.ui.singleText.text()
+            data = dict()
+            data['nowPos'] = self.nowPos
+            data['sections'] = self.sections
+            data['fileName'] = self.fileName
+            data['allSentence'] = self.allSentence
+            data['materialName'] = self.materialName
+            data['oldMaterialName'] = self.oldMaterialName
+            data['allText'] = self.ui.allText.toPlainText()
+
+            fileName = os.path.join(self.materialName, self.fileName[:self.fileName.rfind('.')] + '.bfs')
+            with open(fileName, 'wb') as f:
+                pickle.dump(data, f)
+            self.lock.release()
+            time.sleep(5)
 
     # 拖放事件
     def dragEnterEvent(self, e):
@@ -265,12 +304,57 @@ class MainDialog(QDialog):
 
     # 拖放事件
     def dropEvent(self, e):
-        if self.nowPos is None:
-            return
         filePathList = e.mimeData().text()
         filePath = filePathList.split('\n')[0]
-        imgPath = filePath.replace('file:///', '', 1)
+        filePath = filePath.replace('file:///', '', 1)
+        # 说明是加载的工程文件
+        if filePath.endswith('.bfs'):
+            # 需要在material目录下有对应的文件夹,没有的禁止载入
+            fileName = os.path.basename(filePath).replace('.bfs', '')
+            if not os.path.exists(os.path.join('material', fileName)):
+                QtWidgets.QMessageBox.information(self, '提示', '未找到对应的素材文件夹!', QMessageBox.Ok)
+                return
 
+            with open(filePath, 'rb') as f:
+                data = pickle.load(f)
+                self.lock.acquire()
+                self.nowPos = data['nowPos']
+                self.sections = data['sections']
+                for imgPath, _ in self.sections:
+                    if imgPath is not None and not os.path.exists(imgPath):
+                        QtWidgets.QMessageBox.information(self, '提示', '对应的素材缺失!', QMessageBox.Ok)
+                        self.lock.release()
+                        return
+
+                self.fileName = data['fileName']
+                self.ui.filenName.setText(self.fileName)
+                self.ui.allText.setReadOnly(False)
+                self.allSentence = data['allSentence']
+                self.materialName = data['materialName']
+                self.oldMaterialName = data['oldMaterialName']
+                self.ui.allText.appendPlainText(data['allText'])
+                self.ui.singleText.setText(self.allSentence[self.nowPos])
+                self.ui.searchText.setText(self.allSentence[self.nowPos])
+
+                imgPath, _ = self.sections[self.nowPos]
+                if imgPath is not None:
+                    self.ui.changeVideoImg(path=imgPath)
+                else:
+                    self.ui.delVideoImg()
+                self.lock.release()
+            return
+
+        # 其他情况是加载的图片文件
+        if self.nowPos is None:
+            # 没有工程内容则忽略该次拖入文件
+            return
+        imgPath = filePath
+        if not imgPath.endswith('.gif'):
+            # 通过加载文件来判断是否为图片,不是则返回
+            try:
+                ImageClip(imgPath)
+            except:
+                return
         self.ui.changeVideoImg(path=imgPath)
         self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
 
@@ -287,9 +371,9 @@ class MainDialog(QDialog):
         fileName = self.ui.filenName.text()
         materialName = os.path.join('material', fileName[:fileName.rfind('.')])
 
-        # 当前工作区没内容，说明是新建的工程，新建的工程的名字不能和之前重复
+        # 当前工作区没内容,说明是新建的工程,新建的工程的名字不能和之前重复
         if len(self.allSentence) <= 0 and os.path.exists(materialName):
-            QtWidgets.QMessageBox.information(self, '提示', '文件名已存在，请更换名字或加载之前缓存！', QMessageBox.Ok)
+            QtWidgets.QMessageBox.information(self, '提示', '文件名已存在,请更换名字或加载之前缓存!', QMessageBox.Ok)
             return
 
         self.fileName = fileName
@@ -300,15 +384,14 @@ class MainDialog(QDialog):
         if self.oldMaterialName == self.materialName:
             return
 
-
-        # 当前工作区无内容，说明是新建的工程，需要新建文件夹
+        # 当前工作区无内容,说明是新建的工程,需要新建文件夹
         if len(self.allSentence) <= 0 and self.ui.allText.isReadOnly() is True:
             os.makedirs(os.path.join(self.materialName, 'audio'))
             os.makedirs(os.path.join(self.materialName, 'img'))
             # 工作区允许编辑
             self.ui.allText.setReadOnly(False)
         else:
-            # 当前工作区有内容，说明工程已经存在，需要对所有数据进行重命名
+            # 当前工作区有内容,说明工程已经存在,需要对所有数据进行重命名
             self.changeFileName()
 
     # 修改了文件名需要对文件夹等全部进行修改
@@ -316,11 +399,21 @@ class MainDialog(QDialog):
         # 对sections的内容进行修改
         for index, data in enumerate(self.sections):
             imgPath, text = data
+            if imgPath is None:
+                continue
             imgBaseName = os.path.basename(imgPath)
             newPath = os.path.join(os.path.join(self.materialName, 'img'), imgBaseName)
             self.sections[index] = (newPath, text)
+        self.lock.acquire()
         # 更改文件夹名字
         os.rename(self.oldMaterialName, self.materialName)
+        # 更改备份文件名字
+        for file in os.listdir(self.materialName):
+            if file.endswith('.bfs'):
+                os.rename(os.path.join(self.materialName, file),
+                          os.path.join(self.materialName, file[:file.rfind('.')] + '.bfs'))
+        self.lock.release()
+
 
     # 上一句
     def last(self):
@@ -408,7 +501,7 @@ class MainDialog(QDialog):
     # 生成视频
     def genVideo(self):
         if len(self.allSentence) <= 0:
-            QtWidgets.QMessageBox.information(self, '提示', '工作区无内容！', QMessageBox.Ok)
+            QtWidgets.QMessageBox.information(self, '提示', '工作区无内容!', QMessageBox.Ok)
             return
         genVideo_thread = genVideoThread(self.sections, self.materialName, self.ui.filenName.text())
         genVideo_thread.signal.connect(self.genVideoFinished)
