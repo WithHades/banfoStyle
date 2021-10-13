@@ -1,8 +1,7 @@
-
-
 import base64
 import hashlib
 import json
+import logging
 import os.path
 import shutil
 import time
@@ -22,14 +21,15 @@ from conf import backgroundMusic, BaiduButton, DoutulaButton
 
 
 # 利用百度语音合成进行配音
-def getBaiDuAudio(text):
+def getBaiDuAudio(text, filePath):
     url = 'https://cloud.baidu.com/aidemo'
     data = 'type=tns&per=4105&spd=8&pit=7&vol=5&aue=6&tex=' + quote(text)
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
-               'Content-Type': 'application/x-www-form-urlencoded',
-               'Accept': '*/*',
-               'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'
-               }
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': '*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'
+        }
     res = requests.post(url, data=data, headers=headers, verify=False)
     if res.status_code != 200:
         return None
@@ -43,20 +43,22 @@ def getBaiDuAudio(text):
 
     md5 = hashlib.md5()
     md5.update(data)
-    filename = md5.hexdigest() + '.mp3'
-    filename = os.path.join('tmp', filename)
-    with open(filename, 'wb') as f:
+    fileName = md5.hexdigest() + '.mp3'
+    fileName = os.path.join(filePath, fileName)
+    with open(fileName, 'wb') as f:
         f.write(data)
-    return filename
+    return fileName
 
 
 # 生成视频线程
 class genVideoThread(QThread):
     signal = pyqtSignal(str)
 
-    def __init__(self, sections):
+    def __init__(self, sections, path, fileName):
         super().__init__()
         self.sections = sections
+        self.path = path
+        self.fileName = fileName
 
     def __del__(self):
         self.wait()
@@ -66,41 +68,48 @@ class genVideoThread(QThread):
         videoClips = []
         for imgPath, text in self.sections:
             texts = text.strip().split('\n')
+            # TODO
+            # 优化gif显示问题
             duration_time = 2
             if imgPath.endswith('.gif'):
                 clip = VideoFileClip(imgPath)
                 duration_time = clip.duration / len(texts)
             else:
                 clip = ImageClip(imgPath)
+
+            # 考虑到每张表情包可能对应多句字幕
             for txt in texts:
                 txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=50, align='South')
-                txtAudio = getBaiDuAudio(txt)
+                # 合成语音
+                txtAudio = getBaiDuAudio(txt, self.path)
                 if txtAudio is None:
-                    print('get the audio of {} failed!'.format(txt))
+                    logging.error('get the audio of {} failed!'.format(txt))
                     continue
                 txtAudio = AudioFileClip(txtAudio)
+                # 表情包视频与字幕融合
                 cvc = CompositeVideoClip([clip.set_position(('center', 'center')),
                                           txtClip.set_position(('center', 0.85), relative=True)],
                                          size=screensize).subclip(0, txtAudio.duration)
+                # 添加配音
                 cvc = cvc.set_audio(txtAudio)
                 videoClips.append(cvc)
-        final_clip = concatenate_videoclips(videoClips)
+        finalClip = concatenate_videoclips(videoClips)
         # 获取原视频声音
-        audio = final_clip.audio
+        audio = finalClip.audio
 
         # 整体背景音乐
         audioClip = AudioFileClip(backgroundMusic)
-        if audioClip.duration > final_clip.duration:
+        if audioClip.duration > finalClip.duration:
             audioClip = audioClip.subclip(0, audio.duration)
-        elif audioClip.duration < final_clip.duration:
+        elif audioClip.duration < finalClip.duration:
             audioClip = afx.audio_loop(audioClip, duration=audio.duration)
 
         # 声音结合起来
         audio = CompositeAudioClip([audio, audioClip])
-        final_clip = final_clip.set_audio(audio)
-        filename = os.path.join('out', '{}.avi'.format(int(time.time())))
-        final_clip.write_videofile(filename, fps=25, codec='mpeg4')
-        self.signal.emit(filename)
+        finalClip = finalClip.set_audio(audio)
+        fileName = os.path.join('out', self.fileName)
+        finalClip.write_videofile(fileName, fps=25, codec='mpeg4')
+        self.signal.emit(fileName)
 
 
 # 获取网络表情包线程
@@ -199,8 +208,8 @@ class addImgThread(QThread):
                     continue
                 md5 = hashlib.md5()
                 md5.update(res.content)
-                filename = md5.hexdigest() + '.gif' if is_gif else md5.hexdigest() + '.png'
-                path = os.path.join('tmp', filename)
+                fileName = md5.hexdigest() + '.gif' if is_gif else md5.hexdigest() + '.png'
+                path = os.path.join('tmp', fileName)
                 with open(path, 'wb') as f:
                     f.write(res.content)
                 self.signal.emit(path)
@@ -228,7 +237,6 @@ class addImgThread(QThread):
                 self.signal.emit(path)
 
 
-
 class MainDialog(QDialog):
     def __init__(self, parent=None):
         super(QDialog, self).__init__(parent)
@@ -237,15 +245,16 @@ class MainDialog(QDialog):
         # 当前指向的句子
         self.nowPos = None
         # 所有的句子
-        self.all_sentence = []
+        self.allSentence = []
         # 获取表情包线程句柄
         self.subThread = None
         # 已经设定好的句子以及表情包
         self.sections = []
-        # 当前选择的图片
-        self.ImgPath = None
-
+        # 接收拖放对象
         self.setAcceptDrops(True)
+
+        self.materialName = None
+        self.oldMaterialName = None
 
     # 拖放事件
     def dragEnterEvent(self, e):
@@ -256,27 +265,76 @@ class MainDialog(QDialog):
 
     # 拖放事件
     def dropEvent(self, e):
-        filePathList = e.mimeData().text()
-        filePath = filePathList.split('\n')[0]
-        self.ImgPath = filePath.replace('file:///', '', 1)
         if self.nowPos is None:
             return
-        self.ui.changeVideoImg(path=self.ImgPath)
-        self.sections[self.nowPos] = (self.ImgPath, self.ui.singleText.text())
+        filePathList = e.mimeData().text()
+        filePath = filePathList.split('\n')[0]
+        imgPath = filePath.replace('file:///', '', 1)
+
+        self.ui.changeVideoImg(path=imgPath)
+        self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
+
+        # 将表情包复制到到material目录
+        imgBaseName = os.path.basename(imgPath)
+        newPath = '{}.{}'.format(self.nowPos, imgBaseName[imgBaseName.rfind('.') + 1:])
+        newPath = os.path.join(os.path.join(self.materialName, 'img'), newPath)
+        shutil.copyfile(imgPath, newPath)
+        # 保存图片与字幕信息
+        self.sections[self.nowPos] = (newPath, self.ui.singleText.text())
+
+    # 设置文件名
+    def setFilename(self):
+        fileName = self.ui.filenName.text()
+        materialName = os.path.join('material', fileName[:fileName.rfind('.')])
+
+        # 当前工作区没内容，说明是新建的工程，新建的工程的名字不能和之前重复
+        if len(self.allSentence) <= 0 and os.path.exists(materialName):
+            QtWidgets.QMessageBox.information(self, '提示', '文件名已存在，请更换名字或加载之前缓存！', QMessageBox.Ok)
+            return
+
+        self.fileName = fileName
+        self.oldMaterialName = self.materialName
+        self.materialName = materialName
+
+        # 文件名并未更改
+        if self.oldMaterialName == self.materialName:
+            return
+
+
+        # 当前工作区无内容，说明是新建的工程，需要新建文件夹
+        if len(self.allSentence) <= 0 and self.ui.allText.isReadOnly() is True:
+            os.makedirs(os.path.join(self.materialName, 'audio'))
+            os.makedirs(os.path.join(self.materialName, 'img'))
+            # 工作区允许编辑
+            self.ui.allText.setReadOnly(False)
+        else:
+            # 当前工作区有内容，说明工程已经存在，需要对所有数据进行重命名
+            self.changeFilename()
+
+    # 修改了文件名需要对文件夹等全部进行修改
+    def changeFilename(self):
+        # 对sections的内容进行修改
+        for index, data in enumerate(self.sections):
+            imgPath, text = self.sections
+            imgBaseName = os.path.basename(imgPath)
+            newPath = os.path.join(os.path.join(self.materialName, 'img'), imgBaseName)
+            self.sections[index] = (newPath, text)
+        # 更改文件夹名字
+        os.rename(self.oldMaterialName, self.materialName)
 
     # 上一句
     def last(self):
-        if len(self.all_sentence) <= 0:
+        if len(self.allSentence) <= 0 and not self.editFinished():
             return
         if self.nowPos is None:
             self.nowPos = 0
         else:
             self.nowPos = self.nowPos - 1
             if self.nowPos == -1:
-                self.nowPos = len(self.all_sentence) - 1
-        self.ui.singleText.setText(self.all_sentence[self.nowPos])
+                self.nowPos = len(self.allSentence) - 1
+        self.ui.singleText.setText(self.allSentence[self.nowPos])
         self.ui.singleText.home(False)
-        self.ui.searchText.setText(self.all_sentence[self.nowPos])
+        self.ui.searchText.setText(self.allSentence[self.nowPos])
         self.ui.searchText.home(False)
         # 如果已经设置好了,显示出来;否则就清空
         imgPath, _ = self.sections[self.nowPos]
@@ -287,16 +345,16 @@ class MainDialog(QDialog):
 
     # 下一句,详情同上一句
     def next(self):
-        if len(self.all_sentence) <= 0:
+        if len(self.allSentence) <= 0 and not self.editFinished():
             return
         if self.nowPos is None:
             self.nowPos = -1
         self.nowPos = self.nowPos + 1
-        if self.nowPos >= len(self.all_sentence):
+        if self.nowPos >= len(self.allSentence):
             self.nowPos = 0
-        self.ui.singleText.setText(self.all_sentence[self.nowPos])
+        self.ui.singleText.setText(self.allSentence[self.nowPos])
         self.ui.singleText.home(False)
-        self.ui.searchText.setText(self.all_sentence[self.nowPos])
+        self.ui.searchText.setText(self.allSentence[self.nowPos])
         self.ui.searchText.home(False)
         imgPath, _ = self.sections[self.nowPos]
         if imgPath is not None:
@@ -310,9 +368,12 @@ class MainDialog(QDialog):
 
     # 文案编辑完毕, 分割并加载
     def editFinished(self):
-        self.all_sentence = self.ui.allText.toPlainText().split('\n')
-        self.all_sentence = [x.strip() for x in self.all_sentence if len(x.strip()) > 0]
-        self.sections = [(None, None) for _ in range(len(self.all_sentence))]
+        self.allSentence = self.ui.allText.toPlainText().split('\n')
+        self.allSentence = [x.strip() for x in self.allSentence if len(x.strip()) > 0]
+        if len(self.allSentence) <= 0:
+            return False
+        self.sections = [(None, None) for _ in range(len(self.allSentence))]
+        return True
 
     # 将网络表情包加载预览以供选择
     def thread_addImg(self, path):
@@ -322,23 +383,34 @@ class MainDialog(QDialog):
     def search(self, button):
         if self.subThread is not None:
             self.subThread.terminate()
-            time.sleep(1)
+            while self.subThread.isRunning() and not self.subThread.isFinished():
+                time.sleep(0.1)
         self.ui.delImg()
         self.subThread = addImgThread(self.ui.searchText.text(), button)
+
         self.subThread.signal.connect(self.thread_addImg)
         self.subThread.start()
 
     # 将选好的表情包加载到视频预览区
-    def ImgClicked(self, index):
+    def imgClicked(self, index):
         if self.nowPos is None:
             return
-        self.ui.changeVideoImg(index=index)
-        _, _, self.ImgPath = self.ui.img[index]
-        self.sections[self.nowPos] = (self.ImgPath, self.ui.singleText.text())
+        _, _, imgPath = self.ui.img[index]
+        self.ui.changeVideoImg(path=imgPath)
+        # 将表情包复制到material目录
+        imgBaseName = os.path.basename(imgPath)
+        newPath = '{}.{}'.format(self.nowPos, imgBaseName[imgBaseName.rfind('.') + 1:])
+        newPath = os.path.join(os.path.join(self.materialName, 'img'), newPath)
+        shutil.copyfile(imgPath, newPath)
+        # 保存图片与字幕信息
+        self.sections[self.nowPos] = (newPath, self.ui.singleText.text())
 
     # 生成视频
     def genVideo(self):
-        genVideo_thread = genVideoThread(self.sections)
+        if len(self.allSentence) <= 0:
+            QtWidgets.QMessageBox.information(self, '提示', '工作区无内容！', QMessageBox.Ok)
+            return
+        genVideo_thread = genVideoThread(self.sections, self.ui.filenName.text())
         genVideo_thread.signal.connect(self.genVideoFinished)
         genVideo_thread.start()
 
