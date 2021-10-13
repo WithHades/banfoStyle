@@ -81,7 +81,7 @@ class genVideoThread(QThread):
             for txt in texts:
                 txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=50, align='South')
                 # 合成语音
-                txtAudio = getBaiDuAudio(txt, self.path)
+                txtAudio = getBaiDuAudio(txt, os.path.join(self.path, 'audio'))
                 if txtAudio is None:
                     logging.error('get the audio of {} failed!'.format(txt))
                     continue
@@ -315,7 +315,7 @@ class MainDialog(QDialog):
     def changeFilename(self):
         # 对sections的内容进行修改
         for index, data in enumerate(self.sections):
-            imgPath, text = self.sections
+            imgPath, text = data
             imgBaseName = os.path.basename(imgPath)
             newPath = os.path.join(os.path.join(self.materialName, 'img'), imgBaseName)
             self.sections[index] = (newPath, text)
@@ -410,7 +410,7 @@ class MainDialog(QDialog):
         if len(self.allSentence) <= 0:
             QtWidgets.QMessageBox.information(self, '提示', '工作区无内容！', QMessageBox.Ok)
             return
-        genVideo_thread = genVideoThread(self.sections, self.ui.filenName.text())
+        genVideo_thread = genVideoThread(self.sections, self.materialName, self.ui.filenName.text())
         genVideo_thread.signal.connect(self.genVideoFinished)
         genVideo_thread.start()
 
