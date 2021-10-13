@@ -15,19 +15,22 @@
 ## 安装
 1. 安装python3.8.3
 2. 安装requirements.txt依赖
-
-## 文件说明
-mainWindow.py: 窗口GUI
-
-main.py: 主窗口，包含上述思路所有部分
-
-conf.py: 配置文件
+3. 运行`python main.py`
 
 ## TODO
-- [x] 记得找个女朋友生成视频放入线程中
-- [x] 增加百度图片搜索接口
-- [x] 增加本地图片选择
-- [x] 配音，文字->语音
 - [ ] 优化gif显示
 - [ ] 表情包尺寸的统一问题
 - [ ] 编辑保存防止异常退出工作丢失
+
+## Reference
+[一键生成半佛仙人视频，表情包之王你也可以！](https://www.bilibili.com/video/BV1oz411e7Jk)
+
+[MoviePy](https://zulko.github.io/moviepy/)
+
+[斗图啦](https://www.doutula.com/article/list/)
+
+[百度图片](https://image.baidu.com/)
+
+[百度在线语音合成](https://cloud.baidu.com/product/speech/tts_online)
+## License
+[GNU General Public License v3.0](LICENSE)
