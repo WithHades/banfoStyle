@@ -309,10 +309,10 @@ class MainDialog(QDialog):
             self.ui.allText.setReadOnly(False)
         else:
             # 当前工作区有内容，说明工程已经存在，需要对所有数据进行重命名
-            self.changeFilename()
+            self.changeFileName()
 
     # 修改了文件名需要对文件夹等全部进行修改
-    def changeFilename(self):
+    def changeFileName(self):
         # 对sections的内容进行修改
         for index, data in enumerate(self.sections):
             imgPath, text = data
