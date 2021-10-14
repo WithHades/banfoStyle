@@ -12,7 +12,8 @@ import shutil
 import time
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtGui import QMovie
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QMovie, QStandardItemModel, QStandardItem
 
 from conf import DoutulaButton, BaiduButton
 
@@ -50,9 +51,8 @@ class Ui_MainWindow(object):
         MainWindow.setObjectName('MainWindow')
         MainWindow.resize(1890, 702)
         MainWindow.setLayoutDirection(QtCore.Qt.LeftToRight)
-        # 表情包点击函数
-        self.mainwindow_clicked = MainWindow.imgClicked
 
+        self.mainWindow = MainWindow
         self.centralwidget = QtWidgets.QWidget(MainWindow)
 
         # 输入文件名标签
@@ -80,6 +80,53 @@ class Ui_MainWindow(object):
         self.allText.setGeometry(QtCore.QRect(10, 20, 541, 581))
         self.allText.setAcceptDrops(False)
         self.allText.setReadOnly(True)
+
+        # 文案以表格的形式展示
+        self.model = QStandardItemModel(0, 0)
+        # 设置水平方向四个头标签文本内容
+        self.model.setHorizontalHeaderLabels(['文案&字幕'])
+        self.row = 0
+        for x in range(10):
+            self.addRow("xxx{}".format(x))
+        self.tableView = QtWidgets.QTableView(self.groupBox)
+        self.tableView.setGeometry(QtCore.QRect(10, 20, 541, 542))
+        self.tableView.setShowGrid(True)
+        self.tableView.setModel(self.model)
+        self.tableView.horizontalHeader().setStretchLastSection(True)
+        self.tableView.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+
+        # 打开文案/前增一句/后增一句/删除一句/修改一句/导出文案按钮布局
+        self.tableButtonWidget = QtWidgets.QWidget(self.groupBox)
+        self.tableButtonWidget.setGeometry(QtCore.QRect(10, 561, 541, 40))
+        # 水平分布
+        self.hbox = QtWidgets.QHBoxLayout()
+        self.hbox.setGeometry(QtCore.QRect())
+        self.hbox.setContentsMargins(10, 0, 10, 0)
+        # 打开文案
+        self.openText = QtWidgets.QPushButton()
+        self.openText.setText('打开')
+        self.openText.clicked.connect(MainWindow.loadText)
+        self.hbox.addWidget(self.openText)
+        # 在前面增加一句
+        self.addFrontText = QtWidgets.QPushButton()
+        self.addFrontText.setText('前增一句')
+        self.addFrontText.clicked.connect(MainWindow.addFrontText)
+        self.hbox.addWidget(self.addFrontText)
+        # 在后面增加一句
+        self.addBehindText = QtWidgets.QPushButton()
+        self.addBehindText.setText('后增一句')
+        self.addBehindText.clicked.connect(MainWindow.addBehindText)
+        self.hbox.addWidget(self.addBehindText)
+        # 删除该句
+        self.delText = QtWidgets.QPushButton()
+        self.delText.setText('删除该句')
+        self.delText.clicked.connect(MainWindow.delText)
+        self.hbox.addWidget(self.delText)
+        # 导出文案
+        self.exportText = QtWidgets.QPushButton()
+        self.exportText.setText('导出文案')
+        self.hbox.addWidget(self.exportText)
+        self.tableButtonWidget.setLayout(self.hbox)
 
         # 单句字幕
         self.singleText = QtWidgets.QLineEdit(self.centralwidget)
@@ -155,7 +202,6 @@ class Ui_MainWindow(object):
         self.search_dou.clicked.connect(MainWindow.search)
         self.search_bai.clicked.connect(MainWindow.search)
         self.singleText.textChanged.connect(MainWindow.changeThePicText)
-        # self.allText.textChanged.connect(MainWindow.editFinished)
         self.genVideo.clicked.connect(MainWindow.genVideo)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
@@ -167,9 +213,7 @@ class Ui_MainWindow(object):
             self.gif.deleteLater()
             self.gif = None
 
-    def changeVideoImg(self, index=None, path=None):
-        if path is None:
-            _, _, path = self.img[index]
+    def changeVideoImg(self, path: str) -> None:
         # 如果图片不是在tmp目录保存,则转到tmp目录再加载,不然重命名工程会有问题
         if not path.startswith('tmp' + os.path.sep):
             newPath = os.path.join('tmp', os.path.basename(path))
@@ -189,7 +233,7 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate('MainWindow', 'MainWindow'))
-        self.groupBox.setTitle(_translate('MainWindow', 'Put the Subtitles to Here'))
+        self.groupBox.setTitle(_translate('MainWindow', 'Put the texts to Here'))
         self.search_dou.setText(_translate('MainWindow', 'Dou'))
         self.search_bai.setText(_translate('MainWindow', 'Bai'))
         self.last.setText(_translate('MainWindow', 'last'))
@@ -210,15 +254,116 @@ class Ui_MainWindow(object):
         self.img.append((img_label, gif, path))
         self.topFiller.setMinimumSize(490, (row + 1) * (151 + 10))
         self.scroll.setWidget(self.topFiller)
-        img_label.clicked.connect(self.mainwindow_clicked)
+        img_label.clicked.connect(self.mainWindow.imgClicked)
         img_label.show()
         self.topFiller.show()
         self.widget.show()
 
-    def delImg(self):
-        for img_label, gif, _ in self.img:
-            img_label.deleteLater()
+    def delImg(self) -> None:
+        """
+        清空从网络获取的所有的表情包
+        :return: None
+        """
+        for imgLabel, gif, _ in self.img:
+            imgLabel.deleteLater()
             gif.deleteLater()
         self.img = []
         self.widget.show()
 
+    def getImgPathByIndex(self, index: int) -> str:
+        """
+        通过表情包缓存区的索引获取表情包的实际路径
+        :param index: 表情包缓存区的索引
+        :return: 表情包的实际位置
+        """
+        return self.img[index][2]
+
+    def addRow(self, text: str) -> None:
+        """
+        向表中添加一行新的数据
+        :param text:
+        :return:
+        """
+        item = QStandardItem(text)
+        self.model.setItem(self.row, 0, item)
+        self.row += 1
+
+    def delRow(self, row: int) -> None:
+        """
+        删除一行表中的数据
+        :param row: 删除索引
+        :return:
+        """
+        self.model.removeRow(row)
+
+    def delAllRow(self) -> None:
+        """
+        删除所有行
+        :return:
+        """
+        map(self.delRow, range(self.model.rowCount()))
+
+    def msgBox(self, msg: str, hasQuery: bool = False) -> bool:
+        """
+        :param msg: 消息
+        :param hasQuery: 是否带询问
+        :return: 如果hasQuery为True,返回值为用户是否点击了确定
+        """
+        if not hasQuery:
+            QtWidgets.QMessageBox.information(self.mainWindow, '提示', msg, QtWidgets.QMessageBox.Ok,
+                                              QtWidgets.QMessageBox.Ok)
+            return True
+        reply = QtWidgets.QMessageBox.question(self.mainWindow, '提示', msg,
+                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+                                               QtWidgets.QMessageBox.Cancel)
+        return reply == QtWidgets.QMessageBox.Yes
+
+    def getCurrentSelected(self) -> int:
+        """
+        获取当前选中的表格单元索引
+        :return: 前选中的表格单元索引
+        """
+        selectedIndex = self.tableView.selectedIndexes()
+        print(selectedIndex)
+        if len(selectedIndex) > 0:
+            print(selectedIndex[0].row())
+            return selectedIndex[0].row()
+        return -1
+
+    def insertRow(self, index: int) -> None:
+        """
+        增加一行空白行
+        :index: 增加的位置索引
+        :return: None
+        """
+        self.model.insertRow(index)
+
+    def getSubtitle(self) -> str:
+        """
+        获取当前编辑的字幕信息
+        :return: 前编辑的字幕
+        """
+        return self.singleText.text()
+
+    def getSearchText(self) -> str:
+        """
+        获取搜索框文本信息
+        :return: 搜索框文本信息
+        """
+        return self.searchText.text()
+
+    def setVideoText(self, text: str) -> None:
+        """
+        设置视频预览区字幕信息
+        :param text: 字幕信息
+        :return: None
+        """
+        self.videoText.setText(text)
+
+    def setFileName(self, fileName: str) -> None:
+        """
+        设置文件名
+        :param fileName: 文件名
+        :return: None
+        """
+        self.filenName.setText(fileName)

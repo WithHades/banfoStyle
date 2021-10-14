@@ -23,6 +23,9 @@ from conf import backgroundMusic, BaiduButton, DoutulaButton
 
 
 # 利用百度语音合成进行配音
+from utils import getUuid
+
+
 def getBaiDuAudio(text, filePath):
     # 生成文件名
     md5 = hashlib.md5()
@@ -256,8 +259,8 @@ class MainDialog(QDialog):
         self.allSentence = []
         # 获取表情包线程句柄
         self.subThread = None
-        # 已经设定好的句子以及表情包
-        self.sections = []
+        # 已经设定好的句子以及表情包,三元组(图片路径, 文案, 时间戳),时间戳一旦生成不再修改,主要用于区分文案并生成对应的图片路径
+        self.sections = None
         # 接收拖放对象
         self.setAcceptDrops(True)
 
@@ -309,49 +312,15 @@ class MainDialog(QDialog):
         filePath = filePath.replace('file:///', '', 1)
         # 说明是加载的工程文件
         if filePath.endswith('.bfs'):
-            # 需要在material目录下有对应的文件夹,没有的禁止载入
-            fileName = os.path.basename(filePath).replace('.bfs', '')
-            if not os.path.exists(os.path.join('material', fileName)):
-                QtWidgets.QMessageBox.information(self, '提示', '未找到对应的素材文件夹!', QMessageBox.Ok)
-                return
 
-            with open(filePath, 'rb') as f:
-                data = pickle.load(f)
-                self.lock.acquire()
-                self.nowPos = data['nowPos']
-                self.sections = data['sections']
-                for imgPath, _ in self.sections:
-                    if imgPath is not None and not os.path.exists(imgPath):
-                        print(imgPath)
-                        QtWidgets.QMessageBox.information(self, '提示', '对应的素材缺失!', QMessageBox.Ok)
-                        self.lock.release()
-                        return
-
-                self.fileName = data['fileName']
-                self.ui.filenName.setText(self.fileName)
-                self.ui.allText.setReadOnly(False)
-                self.allSentence = data['allSentence']
-                self.materialName = data['materialName']
-                self.oldMaterialName = data['oldMaterialName']
-                self.ui.allText.appendPlainText(data['allText'])
-                self.ui.singleText.setText(self.allSentence[self.nowPos])
-                self.ui.searchText.setText(self.allSentence[self.nowPos])
-                imgPath, _ = self.sections[self.nowPos]
-                if imgPath is not None:
-                    self.ui.changeVideoImg(path=imgPath)
-                else:
-                    self.ui.delVideoImg()
-                self.lock.release()
-            return
 
         # 说明加载的是文案文件
         if filePath.endswith('.txt'):
-            if self.ui.allText.isReadOnly():
-                QtWidgets.QMessageBox.information(self, '提示', '请先设置工程目录!', QMessageBox.Ok)
+            if self.fileName is None:
+                self.ui.msgBox('请先设置工程目录!')
                 return
-            with open(filePath, 'r') as f:
-                data = f.read()
-            self.ui.allText.appendPlainText(data)
+            self.loadText(True, filePath)
+            return
 
         # 其他情况是加载的图片文件
         imgPath = filePath
@@ -376,173 +345,319 @@ class MainDialog(QDialog):
         # 保存图片与字幕信息
         self.sections[self.nowPos] = (newPath, self.ui.singleText.text())
 
-    # 设置文件名
-    def setFilename(self):
+
+    def loadBfs(self, filePath: str) -> None:
+        """
+        加载工程文件
+        :param filePath: 工程文件路径
+        :return: None
+        """
+        if self.sections is not None and len(self.sections) > 0:
+            if not self.ui.msgBox('导入工程文件将清空当前工作内容,可能导致部分内容丢失,是否继续?', True):
+                return
+
+        # 需要在material目录下有对应的文件夹,没有的禁止载入
+        fileName = os.path.basename(filePath).replace('.bfs', '')
+        if not os.path.exists(os.path.join('material', fileName)):
+            self.ui.msgBox('未找到对应的素材文件夹!')
+            return
+
+        with open(filePath, 'rb') as f:
+            data = pickle.load(f)
+            self.lock.acquire()
+            self.nowPos = data['nowPos']
+            self.sections = data['sections']
+
+            # 检查资源文件是否都存在
+            for data in self.sections:
+                if data[0] is not None and not os.path.exists(data[0]):
+                    self.nowPos = None
+                    self.sections = None
+                    self.ui.msgBox('对应的素材缺失!')
+                    self.lock.release()
+                    return
+
+            self.fileName = data['fileName']
+            self.ui.setFileName(self.fileName)
+            self.materialName = data['materialName']
+
+            # 将sections的内容填充到表格
+            self.ui.delAllRow()
+            for data in self.sections:
+                self.ui.addRow(data[1])
+
+            self.ui.singleText.setText(self.sections[self.nowPos][1])
+            self.ui.searchText.setText(self.sections[self.nowPos][1])
+            imgPath = self.sections[self.nowPos][0]
+            if imgPath is not None:
+                self.ui.changeVideoImg(path=imgPath)
+            else:
+                self.ui.delVideoImg()
+            self.lock.release()
+        return
+
+
+    def setFilename(self) -> None:
+        """
+        设置文件名
+        :return: None
+        """
+        # 加锁,禁止保存或者载入工程文件
         self.lock.acquire()
         fileName = self.ui.filenName.text()
         materialName = os.path.join('material', fileName[:fileName.rfind('.')])
 
         # 当前工作区没内容,说明是新建的工程,新建的工程的名字不能和之前重复
-        if len(self.allSentence) <= 0 and os.path.exists(materialName):
-            QtWidgets.QMessageBox.information(self, '提示', '文件名已存在,请更换名字或加载之前缓存!', QMessageBox.Ok)
+        if len(self.sections) <= 0 and os.path.exists(materialName):
+            self.ui.msgBox('文件名已存在,请更换名字或加载之前缓存!')
             self.lock.release()
             return
 
         self.fileName = fileName
-        self.oldMaterialName = self.materialName
-        self.materialName = materialName
 
-        # 文件名并未更改
-        if self.oldMaterialName == self.materialName:
+        # 文件名并未更改,可能是未修改或者只修改了后缀名,都可以忽略
+        if self.materialName == materialName:
+            self.ui.msgBox('设置工程文件夹成功!')
             self.lock.release()
             return
 
         # 当前工作区无内容,说明是新建的工程,需要新建文件夹
-        if len(self.allSentence) <= 0 and self.ui.allText.isReadOnly() is True:
+        if len(self.sections) <= 0:
             os.makedirs(os.path.join(self.materialName, 'audio'))
             os.makedirs(os.path.join(self.materialName, 'img'))
-            # 工作区允许编辑
-            self.ui.allText.setReadOnly(False)
+            self.ui.msgBox('新建工程文件夹成功!')
         else:
             # 当前工作区有内容,说明工程已经存在,需要对所有数据进行重命名
-            self.changeFileName()
+            self.changeFileName(self.materialName, materialName)
+            self.materialName = materialName
+            self.ui.msgBox('重命名工程文件夹成功!')
         self.lock.release()
 
-    # 修改了文件名需要对文件夹等全部进行修改
-    def changeFileName(self):
-        # 对sections的内容进行修改
-        for index, data in enumerate(self.sections):
-            imgPath, text = data
-            if imgPath is None:
+    def changeFileName(self, oldMaterialName: str, materialName: str) -> None:
+        """
+        修改了文件名需要对文件夹等全部进行修改
+        :param oldMaterialName: 旧的素材文件夹名
+        :param materialName: 新的素材文件夹名
+        :return:
+        """
+        # 对sections里面包含的图片信息的地址进行修改
+        for data in self.sections:
+            if data[0] is None:
                 continue
-            imgBaseName = os.path.basename(imgPath)
-            newPath = os.path.join(os.path.join(self.materialName, 'img'), imgBaseName)
-            self.sections[index] = (newPath, text)
+            imgBaseName = os.path.basename(data[0])
+            newPath = os.path.join(os.path.join(materialName, 'img'), imgBaseName)
+            data[0] = newPath
 
         # 更改文件夹名字
-        os.rename(self.oldMaterialName, self.materialName)
+        os.rename(oldMaterialName, materialName)
 
-        '''
-        # 代码暂时废弃,不可以直接重命名工程文件,不然找不到素材路径
-        # 更改备份文件名字
-        for file in os.listdir(self.materialName):
-            if file.endswith('.bfs'):
-                try:
-                    os.rename(os.path.join(self.materialName, file),
-                              os.path.join(self.materialName, self.fileName[:self.fileName.rfind('.')] + '.bfs'))
-                except:
-                    pass
-        
-        '''
+    def setSubtitleInfo(self) -> None:
+        """
+        设置上一句/下一句对应的字幕以及图片信息
+        :return: None
+        """
+        self.ui.singleText.setText(self.sections[self.nowPos][1])
+        self.ui.singleText.home(False)
+        self.ui.searchText.setText(self.sections[self.nowPos][1])
+        self.ui.searchText.home(False)
+        # 如果已经设置好了表情包,显示出来;否则就清空
+        imgPath = self.sections[self.nowPos][0]
+        if imgPath is None:
+            self.ui.delVideoImg()
+        else:
+            self.ui.changeVideoImg(imgPath)
 
-    # 上一句
-    def last(self):
-        if len(self.allSentence) <= 0 and not self.editFinished():
+    def last(self) -> None:
+        """
+        上一句,加载上一句字幕与图片
+        :return: None
+        """
+        if len(self.sections) <= 0:
+            self.ui.msgBox('当前工作区暂无内容!')
             return
 
         # 计算当前应该到达的光标
         if self.nowPos is None:
             self.nowPos = 1
-        self.nowPos = self.nowPos - 1
-        if self.nowPos <= -1:
-            self.nowPos = len(self.allSentence) - 1
-
-        # 这是为了解决只修改了字幕但是并未设置/修改图片的情况
-        lastPos = self.nowPos + 1 if self.nowPos != (len(self.allSentence) - 1) else 0
-        imgPath, _ = self.sections[lastPos]
-        self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
-
-        self.ui.singleText.setText(self.allSentence[self.nowPos])
-        self.ui.singleText.home(False)
-        self.ui.searchText.setText(self.allSentence[self.nowPos])
-        self.ui.searchText.home(False)
-        # 如果已经设置好了,显示出来;否则就清空
-        imgPath, _ = self.sections[self.nowPos]
-        if imgPath is not None:
-            self.ui.changeVideoImg(path=imgPath)
         else:
-            self.ui.delVideoImg()
+            # 保存下一句的字幕信息
+            self.sections[self.nowPos][1] = self.ui.getSubtitle()
 
-    # 下一句,详情同上一句
-    def next(self):
-        if len(self.allSentence) <= 0 and not self.editFinished():
+        self.nowPos = self.nowPos - 1 if self.nowPos > -1 else len(self.sections) - 1
+        self.setSubtitleInfo()
+
+    def next(self) -> None:
+        """
+        下一句,加载下一句字幕与图片
+        :return: None
+        """
+        if len(self.sections) <= 0:
+            self.ui.msgBox('当前工作区暂无内容!')
             return
+
         if self.nowPos is None:
             self.nowPos = -1
-        self.nowPos = self.nowPos + 1
-        if self.nowPos >= len(self.allSentence):
-            self.nowPos = 0
-
-        # 这是为了解决只修改了字幕但是并未设置/修改图片的情况
-        lastPos = self.nowPos - 1 if self.nowPos != 0 else len(self.allSentence) - 1
-        imgPath, _ = self.sections[lastPos]
-        self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
-
-        self.ui.singleText.setText(self.allSentence[self.nowPos])
-        self.ui.singleText.home(False)
-        self.ui.searchText.setText(self.allSentence[self.nowPos])
-        self.ui.searchText.home(False)
-        imgPath, _ = self.sections[self.nowPos]
-        if imgPath is not None:
-            self.ui.changeVideoImg(path=imgPath)
         else:
-            self.ui.delVideoImg()
+            # 保存上一句的字幕信息
+            self.sections[self.nowPos][1] = self.ui.getSubtitle()
 
-    # 视频字幕实时更改
-    def changeThePicText(self, text):
-        self.ui.videoText.setText(text)
+        self.nowPos = self.nowPos + 1 if self.nowPos < len(self.sections) else 0
+        self.setSubtitleInfo()
 
-    # 文案编辑完毕, 分割并加载
-    def editFinished(self):
-        self.allSentence = self.ui.allText.toPlainText().split('\n')
-        self.allSentence = [x.strip() for x in self.allSentence if len(x.strip()) > 0]
-        if len(self.allSentence) <= 0:
-            return False
-        self.sections = [(None, text) for text in self.allSentence]
-        return True
+    def changeThePicText(self, text: str) -> None:
+        """
+        视频字幕实时更改
+        :param text: 字幕信息
+        :return: None
+        """
+        self.ui.setVideoText(text)
 
-    # 将网络表情包加载预览以供选择
-    def thread_addImg(self, path):
+    def previewImg(self, path: str) -> None:
+        """
+        将网络表情包加载预览以供选择
+        :param path: 网络表情包路径
+        :return: None
+        """
         self.ui.addImg(path)
 
-    # 搜索表情包,button代表了不同的搜索引擎
-    def search(self, button):
+    def search(self, button: int) -> None:
+        """
+        搜索表情包,button代表了不同的搜索引擎
+        :param button: 来自哪个按钮,代表了不同的搜索引擎
+        :return: None
+        """
         if self.subThread is not None:
             self.subThread.terminate()
             while self.subThread.isRunning() and not self.subThread.isFinished():
                 time.sleep(0.1)
+        # 清空当前的所有表情包图片
         self.ui.delImg()
-        self.subThread = addImgThread(self.ui.searchText.text(), button)
-
-        self.subThread.signal.connect(self.thread_addImg)
+        self.subThread = addImgThread(self.ui.getSearchText(), button)
+        self.subThread.signal.connect(self.previewImg)
         self.subThread.start()
 
-    # 将选好的表情包加载到视频预览区
-    def imgClicked(self, index):
-        if self.nowPos is None:
+    def imgClicked(self, index: int) -> None:
+        """
+        表情包点击回调函数,将选好的表情包加载到视频预览区
+        :param index: 选好的表情包索引
+        :return: None
+        """
+        if len(self.sections) <= 0:
+            self.ui.msgBox('工作区无内容!')
             return
-        _, _, imgPath = self.ui.img[index]
-        self.ui.changeVideoImg(path=imgPath)
+        if self.nowPos is None:
+            self.ui.msgBox('暂未选择文案与字幕!')
+            return
+        imgPath = self.ui.getImgPathByIndex(index)
+        self.ui.changeVideoImg(imgPath)
         # 将表情包复制到material目录
         imgBaseName = os.path.basename(imgPath)
-        newPath = '{}.{}'.format(self.nowPos, imgBaseName[imgBaseName.rfind('.') + 1:])
+        suffix = imgBaseName[imgBaseName.rfind('.') + 1:]
+        uuid = self.sections[self.nowPos][2]
+        newPath = '{}.{}'.format(uuid, suffix)
         newPath = os.path.join(os.path.join(self.materialName, 'img'), newPath)
         shutil.copyfile(imgPath, newPath)
         # 保存图片与字幕信息
-        self.sections[self.nowPos] = (newPath, self.ui.singleText.text())
+        self.sections[self.nowPos] = [newPath, self.ui.getSubtitle(), uuid]
 
-    # 生成视频
-    def genVideo(self):
-        if len(self.allSentence) <= 0:
-            QtWidgets.QMessageBox.information(self, '提示', '工作区无内容!', QMessageBox.Ok)
+    def genVideo(self) -> None:
+        """
+        开始生成视频
+        :return: None
+        """
+        if len(self.sections) <= 0:
+            self.ui.msgBox('工作区无内容!')
             return
-        genVideo_thread = genVideoThread(self.sections, self.materialName, self.ui.filenName.text())
-        genVideo_thread.signal.connect(self.genVideoFinished)
-        genVideo_thread.start()
+        gvt = genVideoThread(self.sections, self.materialName, self.fileName)
+        gvt.signal.connect(self.genVideoFinished)
+        gvt.start()
 
-    # 视频生成完成
-    def genVideoFinished(self, filename):
-        QtWidgets.QMessageBox.information(self, '提示', '生成完毕!位置:{}'.format(filename), QMessageBox.Ok)
+    def genVideoFinished(self, fileName: str) -> None:
+        """
+        视频生成完成回调函数
+        :param fileName: 生成的视频路径
+        :return: None
+        """
+        self.ui.msgBox('生成完毕!位置:{}'.format(fileName))
+
+    def loadText(self, drag=False, fileName: str=None) -> None:
+        """
+        文件浏览器回调函数/同时支持拖放导入文案解析
+        :param drag: 是否是拖放导入的
+        :param fileName: 拖放进来的文件名
+        :return: None
+        """
+        if self.fileName is None:
+            self.ui.msgBox('请先设置工程目录!')
+            return
+        if self.sections is not None and not self.ui.msgBox('当前导入会覆盖工作区内容,不可撤销!是否继续?', True):
+            return
+        self.ui.delAllRow()
+        if not drag:
+            fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文案', os.getcwd(), 'Text Files (*.txt)')
+        with open(fileName) as f:
+            data = f.read()
+        self.sections = list()
+        for text in data.split('\n'):
+            if text == '':
+                continue
+            text = text.strip()
+            self.ui.addRow(text)
+            self.sections.append([None, text, getUuid()])
+        self.ui.msgBox('导入完成!')
+
+    def addFrontText(self) -> None:
+        """
+        在当前选中的表格单元前面增加一行空白行
+        :return: None
+        """
+        if self.sections is None:
+            if self.fileName is not None:
+                index = 0
+            else:
+                self.ui.msgBox('请设置文件名后再添加!')
+                return
+        else:
+            index = self.ui.getCurrentSelected()
+            if index == -1:
+                self.ui.msgBox('未选中表格!')
+                return
+        self.ui.insertRow(index)
+        self.sections.insert(index + 1, [None, "", getUuid()])
+
+    def addBehindText(self) -> None:
+        """
+        在当前选中的表格单元后面增加一行空白行
+        :return: None
+        """
+        if self.sections is None:
+            if self.fileName is not None:
+                index = -1
+            else:
+                self.ui.msgBox('请设置文件名后再添加!')
+                return
+        else:
+            index = self.ui.getCurrentSelected()
+            if index == -1:
+                self.ui.msgBox('未选中表格!')
+                return
+        self.ui.insertRow(index + 1)
+        self.sections.insert(index + 1, [None, "", getUuid()])
+
+    def delText(self) -> None:
+        """
+        删除该行
+        :return: None
+        """
+        if self.sections is None:
+            self.ui.msgBox('请先创建工程或输入文案!')
+        index = self.ui.getCurrentSelected()
+        if index == -1:
+            self.ui.msgBox('未选中表格!')
+            return
+        self.ui.delRow(index)
+        self.sections.pop(index)
+
 
 
 if __name__ == '__main__':
