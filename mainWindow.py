@@ -99,7 +99,7 @@ class Ui_MainWindow(object):
         self.videoBackgroud = QtWidgets.QLabel(self.centralwidget)
         self.videoBackgroud.setGeometry(QtCore.QRect(560, 16, 800, 600))
         self.videoBackgroud.setText('')
-        self.videoBackgroud.setPixmap(QtGui.QPixmap('backgroud.png'))
+        self.videoBackgroud.setPixmap(QtGui.QPixmap('background.png'))
         self.videoBackgroud.setScaledContents(True)
 
         # 视频字幕
