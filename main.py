@@ -289,7 +289,6 @@ class MainDialog(QDialog):
             data['materialName'] = self.materialName
             data['oldMaterialName'] = self.oldMaterialName
             data['allText'] = self.ui.allText.toPlainText()
-
             fileName = os.path.join(self.materialName, self.fileName[:self.fileName.rfind('.')] + '.bfs')
             with open(fileName, 'wb') as f:
                 pickle.dump(data, f)
@@ -435,6 +434,7 @@ class MainDialog(QDialog):
                     pass
         
         '''
+
     # 上一句
     def last(self):
         if len(self.allSentence) <= 0 and not self.editFinished():
@@ -449,7 +449,7 @@ class MainDialog(QDialog):
 
         # 这是为了解决只修改了字幕但是并未设置/修改图片的情况
         lastPos = self.nowPos + 1 if self.nowPos != (len(self.allSentence) - 1) else 0
-        imgPath, _ = self.sections[self.lastPos]
+        imgPath, _ = self.sections[lastPos]
         self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
 
         self.ui.singleText.setText(self.allSentence[self.nowPos])
@@ -475,7 +475,7 @@ class MainDialog(QDialog):
 
         # 这是为了解决只修改了字幕但是并未设置/修改图片的情况
         lastPos = self.nowPos - 1 if self.nowPos != 0 else len(self.allSentence) - 1
-        imgPath, _ = self.sections[self.lastPos]
+        imgPath, _ = self.sections[lastPos]
         self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
 
         self.ui.singleText.setText(self.allSentence[self.nowPos])
