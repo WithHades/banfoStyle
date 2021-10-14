@@ -343,10 +343,16 @@ class MainDialog(QDialog):
                 self.lock.release()
             return
 
+        # 说明加载的是文案文件
+        if filePath.endswith('.txt'):
+            if self.ui.allText.isReadOnly():
+                QtWidgets.QMessageBox.information(self, '提示', '请先设置工程目录!', QMessageBox.Ok)
+                return
+            with open(filePath, 'r') as f:
+                data = f.read()
+            self.ui.allText.appendPlainText(data)
+
         # 其他情况是加载的图片文件
-        if self.nowPos is None:
-            # 没有工程内容则忽略该次拖入文件
-            return
         imgPath = filePath
         if not imgPath.endswith('.gif'):
             # 通过加载文件来判断是否为图片,不是则返回
@@ -354,6 +360,10 @@ class MainDialog(QDialog):
                 ImageClip(imgPath)
             except:
                 return
+        if self.nowPos is None:
+            # 没有工程内容则忽略该次拖入文件
+            QtWidgets.QMessageBox.information(self, '提示', '请先新建工程', QMessageBox.Ok)
+            return
         self.ui.changeVideoImg(path=imgPath)
         self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
 
