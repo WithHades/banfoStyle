@@ -74,6 +74,8 @@ class genVideoThread(QThread):
         videoClips = []
         for imgPath, text in self.sections:
             texts = text.strip().split('\n')
+            if imgPath is None:
+                imgPath = 'background.png'
             # TODO
             # 优化gif显示问题
             duration_time = 2
@@ -437,12 +439,19 @@ class MainDialog(QDialog):
     def last(self):
         if len(self.allSentence) <= 0 and not self.editFinished():
             return
+
+        # 计算当前应该到达的光标
         if self.nowPos is None:
-            self.nowPos = 0
-        else:
-            self.nowPos = self.nowPos - 1
-            if self.nowPos == -1:
-                self.nowPos = len(self.allSentence) - 1
+            self.nowPos = 1
+        self.nowPos = self.nowPos - 1
+        if self.nowPos <= -1:
+            self.nowPos = len(self.allSentence) - 1
+
+        # 这是为了解决只修改了字幕但是并未设置/修改图片的情况
+        lastPos = self.nowPos + 1 if self.nowPos != (len(self.allSentence) - 1) else 0
+        imgPath, _ = self.sections[self.lastPos]
+        self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
+
         self.ui.singleText.setText(self.allSentence[self.nowPos])
         self.ui.singleText.home(False)
         self.ui.searchText.setText(self.allSentence[self.nowPos])
@@ -463,6 +472,12 @@ class MainDialog(QDialog):
         self.nowPos = self.nowPos + 1
         if self.nowPos >= len(self.allSentence):
             self.nowPos = 0
+
+        # 这是为了解决只修改了字幕但是并未设置/修改图片的情况
+        lastPos = self.nowPos - 1 if self.nowPos != 0 else len(self.allSentence) - 1
+        imgPath, _ = self.sections[self.lastPos]
+        self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
+
         self.ui.singleText.setText(self.allSentence[self.nowPos])
         self.ui.singleText.home(False)
         self.ui.searchText.setText(self.allSentence[self.nowPos])
@@ -483,7 +498,7 @@ class MainDialog(QDialog):
         self.allSentence = [x.strip() for x in self.allSentence if len(x.strip()) > 0]
         if len(self.allSentence) <= 0:
             return False
-        self.sections = [(None, None) for _ in range(len(self.allSentence))]
+        self.sections = [(None, text) for text in self.allSentence]
         return True
 
     # 将网络表情包加载预览以供选择
