@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import random
 import time
 from collections.abc import Iterable
 from urllib.parse import quote
@@ -12,10 +13,10 @@ from bs4 import BeautifulSoup
 
 def getUuid() -> int:
     """
-    13位时间戳充当一个uuid
+    生成一个uuid
     :return: uuid
     """
-    return int(round(time.time() * 1000))
+    return str(random.randint(1, 999999)).zfill(6)
 
 
 def getBaiDuAudio(text: str, filePath: str) -> [str, None]:
