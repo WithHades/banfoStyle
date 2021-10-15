@@ -3,7 +3,6 @@ import hashlib
 import json
 import os
 import random
-import time
 from collections.abc import Iterable
 from urllib.parse import quote
 
@@ -184,3 +183,23 @@ def getDoutulaImgPath(text: str) -> [Iterable, None]:
             f.write(res.content)
         yield path
 
+
+def resizeImg(width: int, height: int) -> (int, int):
+    """
+    重新设置图片大小
+    :param width: 图片宽度
+    :param height: 图片高度
+    :return: (width, height)
+    """
+    if (width < 440 and height < 400) or (width > 440 and height > 440):
+        # 如果比例大于1.5,就不强制拉伸,按照宽度进行缩放
+        if width / height > 1.5 or height / width > 1.5:
+            width, height = 440, height * 440 / width
+        else:
+            # 小于1.5的强制拉伸
+            width, height = 440, 440
+    if width > 440 and height <= 440:
+        width, height = 440, height * 440 / width
+    if height > 440 and width <= 440:
+        height, width = 440, width * 440 / height
+    return width, height

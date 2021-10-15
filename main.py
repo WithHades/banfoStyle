@@ -15,7 +15,7 @@ from moviepy.editor import *
 
 from conf import BackgroundMusic, BaiduButton, DoutulaButton
 
-from utils import getUuid, getBaiDuAudio, getBaiduImgPath, getDoutulaImgPath
+from utils import getUuid, getBaiDuAudio, getBaiduImgPath, getDoutulaImgPath, resizeImg
 
 
 class genVideoThread(QThread):
@@ -56,6 +56,11 @@ class genVideoThread(QThread):
                 clip = clip.loop()
             else:
                 clip = ImageClip(imgPath)
+
+            # 设置一下图片/gif大小
+            width, height = clip.size
+            width, height = resizeImg(width, height)
+            clip.resize((width, height))
 
             # 考虑到每张表情包可能对应多句字幕
             for txt in texts:

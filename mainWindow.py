@@ -12,9 +12,12 @@ import shutil
 import time
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtGui import QMovie, QStandardItemModel, QStandardItem, QFocusEvent
+from PyQt5.QtGui import QMovie, QStandardItemModel, QStandardItem
+from moviepy.video.VideoClip import ImageClip
+from moviepy.video.io.VideoFileClip import VideoFileClip
 
 from conf import DoutulaButton, BaiduButton
+from utils import resizeImg
 
 
 class clickedButton(QtWidgets.QPushButton):
@@ -237,6 +240,19 @@ class Ui_MainWindow(object):
             self.gif.deleteLater()
             self.gif = None
 
+    def getResizedOfVideoImg(self, path) -> (int, int):
+        """
+        获取路径图片重新调整过的大小
+        :param path: 图片路径
+        :return: (width, height)
+        """
+        try:
+            clip = VideoFileClip(path)
+        except:
+            clip = ImageClip(path)
+        width, height = clip.size
+        return resizeImg(width, height)
+
     def changeVideoImg(self, path: str) -> None:
         """
         加载图片到视频预览区
@@ -251,7 +267,9 @@ class Ui_MainWindow(object):
             path = newPath
         self.delVideoImg()
         self.videoImg = QtWidgets.QLabel(self.centralwidget)
-        self.videoImg.setGeometry(QtCore.QRect(560, 10, 801, 601))
+        wight, height = self.getResizedOfVideoImg(path)
+        self.videoImg.setGeometry(QtCore.QRect(int(960 - wight / 2), int(316 - height / 2), wight, height))
+        # self.videoImg.setScaledContents(True)
         self.gif = QMovie(path)
         self.videoImg.setMovie(self.gif)
         self.videoImg.setAlignment(QtCore.Qt.AlignCenter)
