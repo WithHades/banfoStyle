@@ -47,12 +47,13 @@ class genVideoThread(QThread):
             texts = text.strip().split('\n')
             if imgPath is None:
                 imgPath = 'background.png'
-            # TODO
-            # 优化gif显示问题
-            duration_time = 2
+
+            # gif用到,用于标记当前字幕对应的gif从哪儿开始
+            index = 0
             if imgPath.endswith('.gif'):
+                # 首先计算一下当前所有语音时间长度
                 clip = VideoFileClip(imgPath)
-                duration_time = clip.duration / len(texts)
+                clip = clip.loop()
             else:
                 clip = ImageClip(imgPath)
 
@@ -66,9 +67,11 @@ class genVideoThread(QThread):
                     continue
                 txtAudio = AudioFileClip(txtAudio)
                 # 表情包视频与字幕融合
-                cvc = CompositeVideoClip([clip.set_position(('center', 'center')),
+
+                cvc = CompositeVideoClip([clip.set_position(('center', 'center')).subclip(index, txtAudio.duration),
                                           txtClip.set_position(('center', 0.85), relative=True)],
                                          size=screensize).subclip(0, txtAudio.duration)
+                index += txtAudio.duration
                 # 添加配音
                 cvc = cvc.set_audio(txtAudio)
                 videoClips.append(cvc)
