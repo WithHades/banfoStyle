@@ -12,7 +12,7 @@ import shutil
 import time
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtGui import QMovie, QStandardItemModel, QStandardItem
+from PyQt5.QtGui import QMovie, QStandardItemModel, QStandardItem, QFocusEvent
 
 from conf import DoutulaButton, BaiduButton
 
@@ -433,3 +433,10 @@ class Ui_MainWindow(object):
         """
         item = self.model.item(row, 0)
         item.setText(text)
+
+    def subtitleHasFocus(self) -> bool:
+        """
+        单句字幕编辑框是否有焦点
+        :return: 单句字幕编辑框是否有焦点
+        """
+        return self.singleText.hasFocus()

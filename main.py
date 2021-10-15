@@ -400,6 +400,8 @@ class MainDialog(QDialog):
         :return: None
         """
         self.ui.setVideoText(text)
+        self.sections[self.nowPos][1] = text
+        self.ui.setRowText(self.nowPos, text)
 
     def previewImg(self, path: str) -> None:
         """
@@ -598,7 +600,8 @@ class MainDialog(QDialog):
         """
         if len(self.sections) >= item.row():
             self.sections[item.row()][1] = item.text()
-            if self.nowPos is not None and self.nowPos == item.row():
+            # 如果当前单句字幕正好是修改的单元格部分,则修改的内容同步修改到单句字幕编辑处. 需要排除由于单句字幕修改造成的表格修改的情况
+            if self.nowPos is not None and self.nowPos == item.row() and self.ui.getSubtitle() != item.text():
                 self.ui.setSubTileText(item.text())
                 self.ui.setSearchText(item.text())
 
