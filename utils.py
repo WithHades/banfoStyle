@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
-def getUuid() -> int:
+def getUuid() -> str:
     """
     生成一个uuid
     :return: uuid
