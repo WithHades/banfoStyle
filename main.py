@@ -1,72 +1,39 @@
-import base64
-import hashlib
-import json
 import logging
 import os.path
 import pickle
 import shutil
 import threading
 import time
-from urllib.parse import quote
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QThread, pyqtSignal
-
-from bs4 import BeautifulSoup
+from PyQt5.QtGui import QDropEvent, QDragEnterEvent, QStandardItem
 
 import mainWindow
-from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
-import requests
+from PyQt5.QtWidgets import QApplication, QDialog
 from moviepy.editor import *
 
-from conf import backgroundMusic, BaiduButton, DoutulaButton
+from conf import BackgroundMusic, BaiduButton, DoutulaButton
+
+from utils import getUuid, getBaiDuAudio, getBaiduImgPath, getDoutulaImgPath
 
 
-# 利用百度语音合成进行配音
-from utils import getUuid
-
-
-def getBaiDuAudio(text, filePath):
-    # 生成文件名
-    md5 = hashlib.md5()
-    md5.update(text.encode('utf-8'))
-    fileName = md5.hexdigest() + '.mp3'
-    fileName = os.path.join(filePath, fileName)
-    # 文件已经存在的话直接返回
-    if os.path.exists(fileName):
-        return fileName
-
-    url = 'https://cloud.baidu.com/aidemo'
-    data = 'type=tns&per=4105&spd=8&pit=7&vol=5&aue=6&tex=' + quote(text)
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'
-    }
-    res = requests.post(url, data=data, headers=headers, verify=False)
-    if res.status_code != 200:
-        return None
-    res = json.loads(res.text)
-    if res['msg'] != 'success':
-        return None
-    data = res['data'].replace('data:audio/x-mpeg;base64,', '')
-    if ',' in data:
-        data = data[:data.find(',')]
-    data = base64.b64decode(data)
-    with open(fileName, 'wb') as f:
-        f.write(data)
-    return fileName
-
-
-# 生成视频线程
 class genVideoThread(QThread):
+    """
+    生成视频线程类
+    """
     signal = pyqtSignal(str)
 
-    def __init__(self, sections, path, fileName):
+    def __init__(self, sections: list, materialName: str, fileName: str) -> None:
+        """
+        初始化几个参数
+        :param sections: 字幕以及图片信息
+        :param materialName: 素材路径
+        :param fileName: 保存视频名称
+        """
         super().__init__()
         self.sections = sections
-        self.path = path
+        self.materialName = materialName
         self.fileName = fileName
 
     def __del__(self):
@@ -75,7 +42,8 @@ class genVideoThread(QThread):
     def run(self):
         screensize = (800, 600)
         videoClips = []
-        for imgPath, text in self.sections:
+        for section in self.sections:
+            imgPath, text = section[0], section[1]
             texts = text.strip().split('\n')
             if imgPath is None:
                 imgPath = 'background.png'
@@ -92,7 +60,7 @@ class genVideoThread(QThread):
             for txt in texts:
                 txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=50, align='South')
                 # 合成语音
-                txtAudio = getBaiDuAudio(txt, os.path.join(self.path, 'audio'))
+                txtAudio = getBaiDuAudio(txt, os.path.join(self.materialName, 'audio'))
                 if txtAudio is None:
                     logging.error('get the audio of {} failed!'.format(txt))
                     continue
@@ -109,7 +77,7 @@ class genVideoThread(QThread):
         audio = finalClip.audio
 
         # 整体背景音乐
-        audioClip = AudioFileClip(backgroundMusic)
+        audioClip = AudioFileClip(BackgroundMusic)
         if audioClip.duration > finalClip.duration:
             audioClip = audioClip.subclip(0, audio.duration)
         elif audioClip.duration < finalClip.duration:
@@ -123,11 +91,18 @@ class genVideoThread(QThread):
         self.signal.emit(fileName)
 
 
-# 获取网络表情包线程
 class addImgThread(QThread):
+    """
+    获取网络表情包线程类
+    """
     signal = pyqtSignal(str)
 
-    def __init__(self, mText, mButton):
+    def __init__(self, mText: str, mButton: int) -> None:
+        """
+        初始化获取网络表情包线程类
+        :param mText: 搜索关键词
+        :param mButton: 采用哪个搜索引擎
+        """
         super().__init__()
         self.text = mText
         self.button = mButton
@@ -137,150 +112,47 @@ class addImgThread(QThread):
 
     def run(self):
         if self.button == BaiduButton:
-            # 百度图片地址解码函数
-            def decodeBaiduImg(objUrl):
-                res = ''
-                c = ['_z2C$q', '_z&e3B', 'AzdH3F']
-                d = {'w': 'a',
-                     'k': 'b',
-                     'v': 'c',
-                     '1': 'd',
-                     'j': 'e',
-                     'u': 'f',
-                     '2': 'g',
-                     'i': 'h',
-                     't': 'i',
-                     '3': 'j',
-                     'h': 'k',
-                     's': 'l',
-                     '4': 'm',
-                     'g': 'n',
-                     '5': 'o',
-                     'r': 'p',
-                     'q': 'q',
-                     '6': 'r',
-                     'f': 's',
-                     'p': 't',
-                     '7': 'u',
-                     'e': 'v',
-                     'o': 'w',
-                     '8': '1',
-                     'd': '2',
-                     'n': '3',
-                     '9': '4',
-                     'c': '5',
-                     'm': '6',
-                     '0': '7',
-                     'b': '8',
-                     'l': '9',
-                     'a': '0',
-                     '_z2C$q': ':',
-                     '_z&e3B': '.',
-                     'AzdH3F': '/'}
-                for m in c:
-                    objUrl = objUrl.replace(m, d[m])
-                for char in objUrl:
-                    char = d[char] if char in d else char
-                    res = res + char
-                return res
-
-            url = 'https://image.baidu.com/search/acjson?tn=resultjson_com&logid=8763701186511659178&ipn=rj&ct=201326592&is=' \
-                  '&fp=result&queryWord={0}&cl=2&lm=-1&ie=utf-8&oe=utf-8&adpicid=&st=-1&z=&ic=0&hd=&latest=&copyright=&word={0}' \
-                  '&s=&se=&tab=&width=&height=&face=0&istype=2&qc=&nc=1&fr=&expermode=&nojc=&acjsonfr=click&pn=0&rn=30&itg=1' \
-                  '&gsm=3c&1634043752626='
-            url = url.format(self.text)
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'}
-            res = requests.get(url, headers=headers, verify=False)
-            if res.status_code != 200:
-                return
-            jsonData = json.loads(res.text)
-            if 'data' not in jsonData:
-                return
-            data = jsonData['data']
-            for img in data:
-                imgUrl = ''
-                if 'objURL' in img:
-                    imgUrl = decodeBaiduImg(img['objURL'])
-                elif 'middleURL' in img:
-                    imgUrl = img['middleURL']
-                elif 'thumbURL' in img:
-                    imgUrl = img['thumbURL']
-                elif imgUrl == '':
-                    return
-                if 'is_gif' in img and img['is_gif'] == 1:
-                    is_gif = 1
-                else:
-                    is_gif = 0
-                res = requests.get(imgUrl)
-                if res.status_code != 200:
-                    continue
-                md5 = hashlib.md5()
-                md5.update(res.content)
-                fileName = md5.hexdigest() + '.gif' if is_gif else md5.hexdigest() + '.png'
-                path = os.path.join('tmp', fileName)
-                with open(path, 'wb') as f:
-                    f.write(res.content)
+            for path in getBaiduImgPath(self.text):
                 self.signal.emit(path)
 
         if self.button == DoutulaButton:
-            url = 'https://www.doutula.com/search?keyword=' + self.text
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'}
-            res = requests.get(url, headers=headers)
-            if res.status_code != 200:
-                return
-            soup = BeautifulSoup(res.text, 'html.parser')
-            randomPics = soup.find_all('a', attrs={'class': 'col-xs-6 col-md-2'})
-            for pic in randomPics:
-                x = pic.find('img', attrs={'referrerpolicy': 'no-referrer'})
-                imgUrl = x['data-original']
-                res = requests.get(imgUrl)
-                if res.status_code != 200:
-                    continue
-                path = os.path.join('tmp', imgUrl[imgUrl.rfind('/') + 1:])
-                with open(path, 'wb') as f:
-                    f.write(res.content)
+            for path in getDoutulaImgPath(self.text):
                 self.signal.emit(path)
 
 
 class MainDialog(QDialog):
     def __init__(self, parent=None):
         super(QDialog, self).__init__(parent)
-        self.ui = mainWindow.Ui_MainWindow()
-        self.ui.setupUi(self)
+
         # 当前指向的句子
         self.nowPos = None
-        # 所有的句子
-        self.allSentence = []
         # 获取表情包线程句柄
         self.subThread = None
         # 已经设定好的句子以及表情包,三元组(图片路径, 文案, 时间戳),时间戳一旦生成不再修改,主要用于区分文案并生成对应的图片路径
-        self.sections = None
+        self.sections = []
         # 接收拖放对象
         self.setAcceptDrops(True)
 
         self.fileName = None
         self.materialName = None
-        self.oldMaterialName = None
 
         # lock of save and read the bfs file
         self.lock = threading.Lock()
+
+        self.ui = mainWindow.Ui_MainWindow()
+        self.ui.setupUi(self)
 
         # start save thread
         self.saveThread = threading.Thread(target=self.save)
         self.saveThread.start()
 
     # 每隔5秒保存一次工程信息
-    def save(self):
+    def save(self) -> None:
+        time.sleep(5)
         # 窗口存在则一直保存
-        while self.ui.centralwidget.isVisible():
+        while self.ui.windowIsVisible():
             self.lock.acquire()
-            if len(self.allSentence) <= 0:
+            if len(self.sections) <= 0:
                 self.lock.release()
                 time.sleep(5)
                 continue
@@ -288,31 +160,37 @@ class MainDialog(QDialog):
             data['nowPos'] = self.nowPos
             data['sections'] = self.sections
             data['fileName'] = self.fileName
-            data['allSentence'] = self.allSentence
             data['materialName'] = self.materialName
-            data['oldMaterialName'] = self.oldMaterialName
-            data['allText'] = self.ui.allText.toPlainText()
             fileName = os.path.join(self.materialName, self.fileName[:self.fileName.rfind('.')] + '.bfs')
             with open(fileName, 'wb') as f:
                 pickle.dump(data, f)
             self.lock.release()
             time.sleep(5)
 
-    # 拖放事件
-    def dragEnterEvent(self, e):
-        if e.mimeData().hasText():
-            e.accept()
-        else:
-            e.ignore()
 
-    # 拖放事件
-    def dropEvent(self, e):
-        filePathList = e.mimeData().text()
-        filePath = filePathList.split('\n')[0]
-        filePath = filePath.replace('file:///', '', 1)
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        """
+        拖放事件
+        :param event: QDragEnterEvent
+        :return: None
+        """
+        if event.mimeData().hasText():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        """
+        拖放事件,主要处理.bfs工程文件, .txt文案文件, .gif/.png等图片文件
+        :param event: 拖放对象事件
+        :return: None
+        """
+        filePathList = event.mimeData().text()
+        filePath = filePathList.split('\n')[0].replace('file:///', '', 1)
         # 说明是加载的工程文件
         if filePath.endswith('.bfs'):
-
+            self.loadBfs(filePath)
+            return
 
         # 说明加载的是文案文件
         if filePath.endswith('.txt'):
@@ -322,28 +200,14 @@ class MainDialog(QDialog):
             self.loadText(True, filePath)
             return
 
-        # 其他情况是加载的图片文件
-        imgPath = filePath
-        if not imgPath.endswith('.gif'):
+        # 其他情况应该是加载的图片文件,先判断是不是gif/图片
+        if not filePath.endswith('.gif'):
             # 通过加载文件来判断是否为图片,不是则返回
             try:
-                ImageClip(imgPath)
+                ImageClip(filePath)
             except:
                 return
-        if self.nowPos is None:
-            # 没有工程内容则忽略该次拖入文件
-            QtWidgets.QMessageBox.information(self, '提示', '请先新建工程', QMessageBox.Ok)
-            return
-        self.ui.changeVideoImg(path=imgPath)
-        self.sections[self.nowPos] = (imgPath, self.ui.singleText.text())
-
-        # 将表情包复制到到material目录
-        imgBaseName = os.path.basename(imgPath)
-        newPath = '{}.{}'.format(self.nowPos, imgBaseName[imgBaseName.rfind('.') + 1:])
-        newPath = os.path.join(os.path.join(self.materialName, 'img'), newPath)
-        shutil.copyfile(imgPath, newPath)
-        # 保存图片与字幕信息
-        self.sections[self.nowPos] = (newPath, self.ui.singleText.text())
+        self.loadPic(filePath)
 
 
     def loadBfs(self, filePath: str) -> None:
@@ -352,7 +216,7 @@ class MainDialog(QDialog):
         :param filePath: 工程文件路径
         :return: None
         """
-        if self.sections is not None and len(self.sections) > 0:
+        if len(self.sections) > 0:
             if not self.ui.msgBox('导入工程文件将清空当前工作内容,可能导致部分内容丢失,是否继续?', True):
                 return
 
@@ -364,38 +228,63 @@ class MainDialog(QDialog):
 
         with open(filePath, 'rb') as f:
             data = pickle.load(f)
-            self.lock.acquire()
-            self.nowPos = data['nowPos']
-            self.sections = data['sections']
 
-            # 检查资源文件是否都存在
-            for data in self.sections:
-                if data[0] is not None and not os.path.exists(data[0]):
-                    self.nowPos = None
-                    self.sections = None
-                    self.ui.msgBox('对应的素材缺失!')
-                    self.lock.release()
-                    return
+        self.lock.acquire()
+        self.nowPos = data['nowPos']
+        self.sections = data['sections']
 
-            self.fileName = data['fileName']
-            self.ui.setFileName(self.fileName)
-            self.materialName = data['materialName']
+        # 检查资源文件是否都存在
+        for section in self.sections:
+            if section[0] is not None and not os.path.exists(section[0]):
+                self.nowPos = None
+                self.sections = []
+                self.ui.msgBox('对应的素材缺失!')
+                self.lock.release()
+                return
 
-            # 将sections的内容填充到表格
-            self.ui.delAllRow()
-            for data in self.sections:
-                self.ui.addRow(data[1])
+        self.fileName = data['fileName']
+        self.ui.setFileName(self.fileName)
+        self.materialName = data['materialName']
 
-            self.ui.singleText.setText(self.sections[self.nowPos][1])
-            self.ui.searchText.setText(self.sections[self.nowPos][1])
+        # 将sections的内容填充到表格
+        self.ui.delAllRow()
+        for section in self.sections:
+            self.ui.addRow(section[1])
+        if self.nowPos is not None:
+            self.ui.setSubTileText(self.sections[self.nowPos][1])
+            self.ui.setSearchText(self.sections[self.nowPos][1])
+
             imgPath = self.sections[self.nowPos][0]
-            if imgPath is not None:
-                self.ui.changeVideoImg(path=imgPath)
-            else:
+            if imgPath is None:
                 self.ui.delVideoImg()
-            self.lock.release()
-        return
+            else:
+                self.ui.changeVideoImg(imgPath)
+        else:
+            self.ui.delVideoImg()
+        self.lock.release()
 
+    def loadPic(self, imgPath: str) -> None:
+        """
+        加载拖放进来的图片文件
+        :param imgPath: 图片文件路径
+        :return: None
+        """
+        if self.nowPos is None:
+            # 没有工程内容则忽略该次拖入文件
+            self.ui.msgBox('请先设置字幕内容!')
+            return
+
+        self.ui.changeVideoImg(imgPath)
+
+        imgBaseName = os.path.basename(imgPath)
+        suffix = imgBaseName[imgBaseName.rfind('.') + 1:]
+        uuid = self.sections[self.nowPos][2]
+        newPath = '{}.{}'.format(uuid, suffix)
+        newPath = os.path.join(os.path.join(self.materialName, 'img'), newPath)
+        shutil.copyfile(imgPath, newPath)
+        # 保存图片与字幕信息
+        self.sections[self.nowPos] = [newPath, self.ui.getSubtitle(), uuid]
+        self.ui.setRowText(self.nowPos, self.ui.getSubtitle())
 
     def setFilename(self) -> None:
         """
@@ -404,7 +293,7 @@ class MainDialog(QDialog):
         """
         # 加锁,禁止保存或者载入工程文件
         self.lock.acquire()
-        fileName = self.ui.filenName.text()
+        fileName = self.ui.getFileName()
         materialName = os.path.join('material', fileName[:fileName.rfind('.')])
 
         # 当前工作区没内容,说明是新建的工程,新建的工程的名字不能和之前重复
@@ -423,14 +312,14 @@ class MainDialog(QDialog):
 
         # 当前工作区无内容,说明是新建的工程,需要新建文件夹
         if len(self.sections) <= 0:
-            os.makedirs(os.path.join(self.materialName, 'audio'))
-            os.makedirs(os.path.join(self.materialName, 'img'))
+            os.makedirs(os.path.join(materialName, 'audio'))
+            os.makedirs(os.path.join(materialName, 'img'))
             self.ui.msgBox('新建工程文件夹成功!')
         else:
             # 当前工作区有内容,说明工程已经存在,需要对所有数据进行重命名
             self.changeFileName(self.materialName, materialName)
-            self.materialName = materialName
             self.ui.msgBox('重命名工程文件夹成功!')
+        self.materialName = materialName
         self.lock.release()
 
     def changeFileName(self, oldMaterialName: str, materialName: str) -> None:
@@ -441,12 +330,12 @@ class MainDialog(QDialog):
         :return:
         """
         # 对sections里面包含的图片信息的地址进行修改
-        for data in self.sections:
-            if data[0] is None:
+        for section in self.sections:
+            if section[0] is None:
                 continue
-            imgBaseName = os.path.basename(data[0])
+            imgBaseName = os.path.basename(section[0])
             newPath = os.path.join(os.path.join(materialName, 'img'), imgBaseName)
-            data[0] = newPath
+            section[0] = newPath
 
         # 更改文件夹名字
         os.rename(oldMaterialName, materialName)
@@ -456,10 +345,8 @@ class MainDialog(QDialog):
         设置上一句/下一句对应的字幕以及图片信息
         :return: None
         """
-        self.ui.singleText.setText(self.sections[self.nowPos][1])
-        self.ui.singleText.home(False)
-        self.ui.searchText.setText(self.sections[self.nowPos][1])
-        self.ui.searchText.home(False)
+        self.ui.setSubTileText(self.sections[self.nowPos][1])
+        self.ui.setSearchText(self.sections[self.nowPos][1])
         # 如果已经设置好了表情包,显示出来;否则就清空
         imgPath = self.sections[self.nowPos][0]
         if imgPath is None:
@@ -482,8 +369,9 @@ class MainDialog(QDialog):
         else:
             # 保存下一句的字幕信息
             self.sections[self.nowPos][1] = self.ui.getSubtitle()
+            self.ui.setRowText(self.nowPos, self.ui.getSubtitle())
 
-        self.nowPos = self.nowPos - 1 if self.nowPos > -1 else len(self.sections) - 1
+        self.nowPos = self.nowPos - 1 if self.nowPos > 0 else len(self.sections) - 1
         self.setSubtitleInfo()
 
     def next(self) -> None:
@@ -500,8 +388,9 @@ class MainDialog(QDialog):
         else:
             # 保存上一句的字幕信息
             self.sections[self.nowPos][1] = self.ui.getSubtitle()
+            self.ui.setRowText(self.nowPos, self.ui.getSubtitle())
 
-        self.nowPos = self.nowPos + 1 if self.nowPos < len(self.sections) else 0
+        self.nowPos = self.nowPos + 1 if self.nowPos < len(self.sections) - 1 else 0
         self.setSubtitleInfo()
 
     def changeThePicText(self, text: str) -> None:
@@ -526,6 +415,9 @@ class MainDialog(QDialog):
         :param button: 来自哪个按钮,代表了不同的搜索引擎
         :return: None
         """
+        if len(self.sections) <= 0 or self.ui.getSearchText() == '':
+            self.ui.msgBox('工作区暂无内容或未输入搜索文字!')
+            return
         if self.subThread is not None:
             self.subThread.terminate()
             while self.subThread.isRunning() and not self.subThread.isFinished():
@@ -559,6 +451,7 @@ class MainDialog(QDialog):
         shutil.copyfile(imgPath, newPath)
         # 保存图片与字幕信息
         self.sections[self.nowPos] = [newPath, self.ui.getSubtitle(), uuid]
+        self.ui.setRowText(self.nowPos, self.ui.getSubtitle())
 
     def genVideo(self) -> None:
         """
@@ -590,11 +483,14 @@ class MainDialog(QDialog):
         if self.fileName is None:
             self.ui.msgBox('请先设置工程目录!')
             return
-        if self.sections is not None and not self.ui.msgBox('当前导入会覆盖工作区内容,不可撤销!是否继续?', True):
+        if len(self.sections) > 0 and not self.ui.msgBox('当前导入会覆盖工作区内容,不可撤销!是否继续?', True):
             return
         self.ui.delAllRow()
         if not drag:
             fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文案', os.getcwd(), 'Text Files (*.txt)')
+        if fileName is not None and not os.path.exists(fileName):
+            self.ui.msgBox('未选择文件!')
+            return
         with open(fileName) as f:
             data = f.read()
         self.sections = list()
@@ -611,7 +507,7 @@ class MainDialog(QDialog):
         在当前选中的表格单元前面增加一行空白行
         :return: None
         """
-        if self.sections is None:
+        if len(self.sections) <= 0:
             if self.fileName is not None:
                 index = 0
             else:
@@ -622,15 +518,19 @@ class MainDialog(QDialog):
             if index == -1:
                 self.ui.msgBox('未选中表格!')
                 return
+
+        if self.nowPos is not None and self.nowPos >= index:
+            self.nowPos += 1
+
         self.ui.insertRow(index)
-        self.sections.insert(index + 1, [None, "", getUuid()])
+        self.sections.insert(index, [None, '', getUuid()])
 
     def addBehindText(self) -> None:
         """
         在当前选中的表格单元后面增加一行空白行
         :return: None
         """
-        if self.sections is None:
+        if len(self.sections) <= 0:
             if self.fileName is not None:
                 index = -1
             else:
@@ -641,23 +541,66 @@ class MainDialog(QDialog):
             if index == -1:
                 self.ui.msgBox('未选中表格!')
                 return
+
+        if self.nowPos is not None and self.nowPos > index:
+            self.nowPos += 1
+
         self.ui.insertRow(index + 1)
-        self.sections.insert(index + 1, [None, "", getUuid()])
+        self.sections.insert(index + 1, [None, '', getUuid()])
 
     def delText(self) -> None:
         """
         删除该行
         :return: None
         """
-        if self.sections is None:
+        if len(self.sections) <= 0:
             self.ui.msgBox('请先创建工程或输入文案!')
+            return
         index = self.ui.getCurrentSelected()
         if index == -1:
             self.ui.msgBox('未选中表格!')
             return
-        self.ui.delRow(index)
-        self.sections.pop(index)
 
+        # 如果删除了当前预览位置的文案
+        if self.nowPos is not None and self.nowPos == index:
+            # 加载下一句文案
+            self.next()
+
+        # 如果在当前位置之前删除了一个文案,那么当前位置-1
+        if self.nowPos is not None and self.nowPos >= index:
+            self.nowPos -= 1
+
+        self.ui.delRow(index)
+        del self.sections[index]
+
+    def exportText(self) -> None:
+        """
+        导出文案内容
+        :return: None
+        """
+        if len(self.sections) <= 0:
+            self.ui.msgBox('当前工作区没有内容!')
+            return
+        texts = ''
+        for section in self.sections:
+            texts += section[1] + '\n'
+
+        path = os.path.join(self.materialName, 'work.txt')
+        with open(path, 'w+') as f:
+            f.write(texts)
+        self.ui.msgBox('导出文案成功!位置:{}'.format(path))
+
+    def tableItemChange(self, item: QStandardItem) -> None:
+        """
+        文案内容被修改时,同步到sections
+        :param item: 被修改的表格item
+        :return:
+        """
+        if len(self.sections) >= item.row():
+            self.sections[item.row()][1] = item.text()
+            if self.nowPos is not None and self.nowPos == item.row():
+                self.ui.setSubTileText(item.text())
+                self.ui.setSearchText(item.text())
 
 
 if __name__ == '__main__':
