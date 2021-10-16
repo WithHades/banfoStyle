@@ -44,6 +44,8 @@ class genVideoThread(QThread):
         videoClips = []
         for section in self.sections:
             imgPath, text = section[0], section[1]
+            text = text.strip(r'\\')
+            text = "\\".join([x.replace(r'\n', '\n') for x in text])
             texts = text.strip().split('\n')
             if imgPath is None:
                 imgPath = 'background.png'
@@ -407,6 +409,8 @@ class MainDialog(QDialog):
         :param text: 字幕信息
         :return: None
         """
+        if len(self.sections) <= 0:
+            return
         self.ui.setVideoText(text)
         self.sections[self.nowPos][1] = text
         self.ui.setRowText(self.nowPos, text)
