@@ -44,7 +44,7 @@ class genVideoThread(QThread):
         videoClips = []
         for section in self.sections:
             imgPath, text = section[0], section[1]
-            text = text.strip(r'\\')
+            text = text.split(r'\\')
             text = "\\".join([x.replace(r'\n', '\n') for x in text])
             texts = text.strip().split('\n')
             if imgPath is None:
@@ -62,7 +62,7 @@ class genVideoThread(QThread):
             # 设置一下图片/gif大小
             width, height = clip.size
             width, height = resizeImg(width, height)
-            clip.resize((width, height))
+            clip = clip.resize((width, height))
 
             # 考虑到每张表情包可能对应多句字幕
             for txt in texts:
