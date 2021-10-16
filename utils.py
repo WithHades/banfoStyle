@@ -191,15 +191,18 @@ def resizeImg(width: int, height: int) -> (int, int):
     :param height: 图片高度
     :return: (width, height)
     """
-    if (width < 440 and height < 400) or (width > 440 and height > 440):
+    default_width, default_height = 440, 360
+    if (width < default_width and height < default_height) or (width > default_width and height > default_height):
         # 如果比例大于1.5,就不强制拉伸,按照宽度进行缩放
-        if width / height > 1.5 or height / width > 1.5:
-            width, height = 440, height * 440 / width
+        if width / height >= 1.5:
+            width, height = default_width, height * default_width / width
+        elif height / width > 1.5:
+            height, width = default_height, width * default_height / height
         else:
             # 小于1.5的强制拉伸
-            width, height = 440, 440
-    if width > 440 and height <= 440:
-        width, height = 440, height * 440 / width
-    if height > 440 and width <= 440:
-        height, width = 440, width * 440 / height
+            width, height = default_width, default_height
+    elif width > default_width and height <= default_height:
+        width, height = default_width, height * default_width / width
+    if height > default_height and width <= default_width:
+        height, width = default_height, width * default_height / height
     return width, height

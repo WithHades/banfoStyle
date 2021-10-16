@@ -270,7 +270,7 @@ class Ui_MainWindow(object):
         self.videoImg = QtWidgets.QLabel(self.centralwidget)
         wight, height = self.getResizedOfVideoImg(path)
         self.videoImg.setGeometry(QtCore.QRect(int(960 - wight / 2), int(316 - height / 2), wight, height))
-        # self.videoImg.setScaledContents(True)
+        self.videoImg.setScaledContents(True)
         self.gif = QMovie(path)
         self.videoImg.setMovie(self.gif)
         self.videoImg.setAlignment(QtCore.Qt.AlignCenter)
