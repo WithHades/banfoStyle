@@ -1,6 +1,8 @@
 import logging
+import math
 import os.path
 import pickle
+import random
 import shutil
 import threading
 import time
@@ -42,7 +44,7 @@ class genVideoThread(QThread):
     def run(self):
         screensize = (800, 600)
         videoClips = []
-        for section in self.sections:
+        for i, section in enumerate(self.sections):
             imgPath, text = section[0], section[1]
             text = text.split(r'\\')
             text = "\\".join([x.replace(r'\n', '\n') for x in text])
@@ -82,6 +84,7 @@ class genVideoThread(QThread):
                 # 添加配音
                 cvc = cvc.set_audio(txtAudio)
                 videoClips.append(cvc)
+            self.signal.emit('进度: {}%'.format(math.ceil((i * 80) / len(self.sections))))
         finalClip = concatenate_videoclips(videoClips)
         # 获取原视频声音
         audio = finalClip.audio
@@ -92,11 +95,12 @@ class genVideoThread(QThread):
             audioClip = audioClip.subclip(0, audio.duration)
         elif audioClip.duration < finalClip.duration:
             audioClip = afx.audio_loop(audioClip, duration=audio.duration)
-
+        self.signal.emit('进度: {}%'.format(math.ceil(i * 80 / len(self.sections)) + random.randint(5, 15)))
         # 声音结合起来
         audio = CompositeAudioClip([audio, audioClip])
         finalClip = finalClip.set_audio(audio)
         fileName = os.path.join('out', self.fileName)
+        self.signal.emit('进度: {}'.format('处理完成! 正在写出文件...'))
         finalClip.write_videofile(fileName, fps=25, codec='mpeg4')
         self.signal.emit(fileName)
 
@@ -155,8 +159,11 @@ class MainDialog(QDialog):
         self.saveThread = threading.Thread(target=self.save)
         self.saveThread.start()
 
-    # 每隔5秒保存一次工程信息
     def save(self) -> None:
+        """
+        每隔5秒保存一次工程信息
+        :return: None
+        """
         time.sleep(5)
         # 窗口存在则一直保存
         while self.ui.windowIsVisible():
@@ -175,7 +182,6 @@ class MainDialog(QDialog):
                 pickle.dump(data, f)
             self.lock.release()
             time.sleep(5)
-
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         """
@@ -217,7 +223,6 @@ class MainDialog(QDialog):
             except:
                 return
         self.loadPic(filePath)
-
 
     def loadBfs(self, filePath: str) -> None:
         """
@@ -473,17 +478,23 @@ class MainDialog(QDialog):
         if len(self.sections) <= 0:
             self.ui.msgBox('工作区无内容!')
             return
-        gvt = genVideoThread(self.sections, self.materialName, self.fileName)
-        gvt.signal.connect(self.genVideoFinished)
-        gvt.start()
+        self.setDisabled(True)
+        self.gvt = genVideoThread(self.sections, self.materialName, self.fileName)
+        self.gvt.signal.connect(self.genVideoFinished)
+        self.gvt.start()
 
-    def genVideoFinished(self, fileName: str) -> None:
+    def genVideoFinished(self, msg: str) -> None:
         """
         视频生成完成回调函数
-        :param fileName: 生成的视频路径
+        :param msg: 生成视频传回的信息。主要有两种，第一是进度，第二是输出的视频的路径
         :return: None
         """
-        self.ui.msgBox('生成完毕!位置:{}'.format(fileName))
+        if ': ' in msg:
+            self.ui.setGenVideoText(msg)
+            return
+        self.setDisabled(False)
+        self.ui.setGenVideoText('生成视频')
+        self.ui.msgBox('生成完毕!位置:{}'.format(msg))
 
     def loadText(self, drag=False, fileName: str=None) -> None:
         """

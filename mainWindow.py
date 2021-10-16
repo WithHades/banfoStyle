@@ -459,3 +459,11 @@ class Ui_MainWindow(object):
         :return: 单句字幕编辑框是否有焦点
         """
         return self.singleText.hasFocus()
+
+    def setGenVideoText(self, text: str) -> None:
+        """
+        设置生成视频按钮的文本
+        :param text: 文本
+        :return: None
+        """
+        self.genVideo.setText(text)
