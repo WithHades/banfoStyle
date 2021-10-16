@@ -104,6 +104,7 @@ class Ui_MainWindow(object):
         self.tableView.setModel(self.model)
         self.tableView.horizontalHeader().setStretchLastSection(True)
         self.tableView.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.tableView.clicked.connect(MainWindow.jumpToIndex)
 
         # 打开文案/前增一句/后增一句/删除一句/修改一句/导出文案按钮布局
         self.tableButtonWidget = QtWidgets.QWidget(self.groupBox)

@@ -142,7 +142,6 @@ class MainDialog(QDialog):
         self.sections = []
         # 接收拖放对象
         self.setAcceptDrops(True)
-
         self.fileName = None
         self.materialName = None
 
@@ -319,7 +318,6 @@ class MainDialog(QDialog):
             self.ui.msgBox('设置工程文件夹成功!')
             self.lock.release()
             return
-
         # 当前工作区无内容,说明是新建的工程,需要新建文件夹
         if len(self.sections) <= 0:
             os.makedirs(os.path.join(materialName, 'audio'))
@@ -616,6 +614,18 @@ class MainDialog(QDialog):
             if self.nowPos is not None and self.nowPos == item.row() and self.ui.getSubtitle() != item.text():
                 self.ui.setSubTileText(item.text())
                 self.ui.setSearchText(item.text())
+
+    def jumpToIndex(self) -> None:
+        """
+        跳转到指定的文案
+        :return: None
+        """
+        if self.nowPos is not None and self.ui.getCurrentSelected() != -1:
+            # 保存上一句的字幕信息
+            self.sections[self.nowPos][1] = self.ui.getSubtitle()
+            self.ui.setRowText(self.nowPos, self.ui.getSubtitle())
+        self.nowPos = self.ui.getCurrentSelected()
+        self.setSubtitleInfo()
 
 
 if __name__ == '__main__':
