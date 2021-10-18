@@ -451,7 +451,8 @@ class Ui_MainWindow(object):
         :return:
         """
         item = self.model.item(row, 0)
-        item.setText(text)
+        if item is not None:
+            item.setText(text)
 
     def subtitleHasFocus(self) -> bool:
         """

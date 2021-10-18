@@ -17,7 +17,7 @@ from moviepy.editor import *
 
 from conf import BackgroundMusic, BaiduButton, DoutulaButton
 
-from utils import getUuid, getBaiDuAudio, getBaiduImgPath, getDoutulaImgPath, resizeImg
+from utils import getUuid, getBaiDuAudio, getBaiduImgPath, getDoutulaImgPath, resizeImg, convertToRGB
 
 
 class genVideoThread(QThread):
@@ -48,17 +48,19 @@ class genVideoThread(QThread):
             imgPath, text = section[0], section[1]
             text = text.split(r'\\')
             text = "\\".join([x.replace(r'\n', '\n') for x in text])
-            texts = text.strip().split('\n')
+            text = text.strip().split('\n')
             if imgPath is None:
                 imgPath = 'background.png'
 
             # gif用到,用于标记当前字幕对应的gif从哪儿开始
             index = 0
+            print(text, imgPath)
             if imgPath.endswith('.gif'):
                 # 首先计算一下当前所有语音时间长度
                 clip = VideoFileClip(imgPath)
                 clip = clip.loop()
             else:
+                convertToRGB(imgPath)
                 clip = ImageClip(imgPath)
 
             # 设置一下图片/gif大小
@@ -67,19 +69,24 @@ class genVideoThread(QThread):
             clip = clip.resize((width, height))
 
             # 考虑到每张表情包可能对应多句字幕
-            for txt in texts:
-                txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=50, align='South')
+            for txt in text:
                 # 合成语音
                 txtAudio = getBaiDuAudio(txt, os.path.join(self.materialName, 'audio'))
+                if len(txt) < 12:
+                    fontsize = 50
+                else:
+                    fontsize = 40
+                txtClip = TextClip(txt, color='white', font='STKaiti', kerning=5, fontsize=fontsize, align='South')
                 if txtAudio is None:
                     logging.error('get the audio of {} failed!'.format(txt))
                     continue
                 txtAudio = AudioFileClip(txtAudio)
-                # 表情包视频与字幕融合
 
+                # 表情包视频与字幕融合
                 cvc = CompositeVideoClip([clip.set_position(('center', 'center')).subclip(index, txtAudio.duration),
                                           txtClip.set_position(('center', 0.85), relative=True)],
-                                         size=screensize).subclip(0, txtAudio.duration)
+                                         size=screensize)
+                cvc = cvc.subclip(0, txtAudio.duration)
                 index += txtAudio.duration
                 # 添加配音
                 cvc = cvc.set_audio(txtAudio)
@@ -95,6 +102,7 @@ class genVideoThread(QThread):
             audioClip = audioClip.subclip(0, audio.duration)
         elif audioClip.duration < finalClip.duration:
             audioClip = afx.audio_loop(audioClip, duration=audio.duration)
+        audioClip = afx.volumex(audioClip, factor=0.35)
         self.signal.emit('进度: {}%'.format(math.ceil(i * 80 / len(self.sections)) + random.randint(5, 15)))
         # 声音结合起来
         audio = CompositeAudioClip([audio, audioClip])
@@ -514,7 +522,7 @@ class MainDialog(QDialog):
         if fileName is not None and not os.path.exists(fileName):
             self.ui.msgBox('未选择文件!')
             return
-        with open(fileName) as f:
+        with open(fileName, 'r', encoding='utf-8') as f:
             data = f.read()
         self.sections = list()
         for text in data.split('\n'):
@@ -619,7 +627,7 @@ class MainDialog(QDialog):
         :param item: 被修改的表格item
         :return:
         """
-        if len(self.sections) >= item.row():
+        if len(self.sections) > item.row():
             self.sections[item.row()][1] = item.text()
             # 如果当前单句字幕正好是修改的单元格部分,则修改的内容同步修改到单句字幕编辑处. 需要排除由于单句字幕修改造成的表格修改的情况
             if self.nowPos is not None and self.nowPos == item.row() and self.ui.getSubtitle() != item.text():

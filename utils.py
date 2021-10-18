@@ -6,7 +6,9 @@ import random
 from collections.abc import Iterable
 from urllib.parse import quote
 
+import piexif
 import requests
+from PIL import Image
 from bs4 import BeautifulSoup
 
 
@@ -206,3 +208,25 @@ def resizeImg(width: int, height: int) -> (int, int):
     if height > default_height and width <= default_width:
         height, width = default_height, width * default_height / height
     return width, height
+
+
+def convertToRGB(path: str) -> None:
+    """
+    如果图片不是RGB模式,则转换成RGB模式,否则生成视频会出错
+    :param path: 图片路径
+    :return: None
+    """
+    # convert to RGB
+    im = Image.open(path)
+    if im.mode != 'RGB':
+        im = im.convert('RGB')
+
+    # 获取exif是否正常,不正常则添加
+    try:
+        im.getexif()
+        im.save(path)
+    except:
+        exif_dict = {}
+        exif_dat = piexif.dump(exif_dict)
+        im.save(path,  exif=exif_dat)
+
