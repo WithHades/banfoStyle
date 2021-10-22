@@ -167,6 +167,8 @@ class Ui_MainWindow(QObject):
                 self.msgBox('文件名非法!')
                 return
             fileName = os.path.join('writing', fileName)
+            if not os.path.exists('writing'):
+                os.mkdir('writing')
         self.fileName = fileName
         with open(fileName, 'w+', encoding='UTF-8') as f:
             f.write(self.writingEdit.toPlainText())

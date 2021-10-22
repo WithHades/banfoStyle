@@ -22,6 +22,9 @@ class BanfoDataset(Dataset):
         return len(self.data)
 
 
+if not os.path.exists('models'):
+    os.mkdir('models')
+
 paddle.set_device('gpu')
 
 gptModel = paddlenlp.transformers.GPTModel.from_pretrained(MODELNAME)
