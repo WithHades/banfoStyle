@@ -47,7 +47,7 @@ class genVideoThread(QThread):
         for i, section in enumerate(self.sections):
             imgPath, text = section[0], section[1]
             text = text.split(r'\\')
-            text = "\\".join([x.replace(r'\n', '\n') for x in text])
+            text = '\\'.join([x.replace(r'\n', '\n') for x in text])
             text = text.strip().split('\n')
             if imgPath is None:
                 imgPath = 'background.png'
@@ -519,7 +519,7 @@ class MainDialog(QDialog):
         self.ui.delAllRow()
         if not drag:
             fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, '选择文案', os.getcwd(), 'Text Files (*.txt)')
-        if fileName is not None and not os.path.exists(fileName):
+        if not os.path.exists(fileName):
             self.ui.msgBox('未选择文件!')
             return
         with open(fileName, 'r', encoding='utf-8') as f:
