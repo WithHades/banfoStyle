@@ -11,6 +11,11 @@ import requests
 from PIL import Image
 from bs4 import BeautifulSoup
 
+from config import APIKEY, BAIDUAPPID, BAIDUAPPKEY
+
+proxies = None
+verify = True
+
 
 def getUuid() -> str:
     """
@@ -228,5 +233,112 @@ def convertToRGB(path: str) -> None:
     except:
         exif_dict = {}
         exif_dat = piexif.dump(exif_dict)
-        im.save(path,  exif=exif_dat)
+        im.save(path, exif=exif_dat)
 
+
+def baiduTranslate(text: str, zhcn2en: bool = True) -> str:
+    """
+    将中文翻译成英文
+    :param text: 中文/英文
+    :param zhcn2en : 是否为中文转英文, 默认为是
+    :return: 英文/中文
+    """
+    url = 'https://fanyi-api.baidu.com/api/trans/vip/translate'
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    data = BAIDUAPPID + text + url + BAIDUAPPKEY
+    md5 = hashlib.md5()
+    md5.update(data.encode('utf-8'))
+    if zhcn2en:
+        data = {'appid': BAIDUAPPID, 'q': text, 'from': 'zh', 'to': 'en', 'salt': url, 'sign': md5.hexdigest()}
+    else:
+        data = {'appid': BAIDUAPPID, 'q': text, 'from': 'en', 'to': 'zh', 'salt': url, 'sign': md5.hexdigest()}
+    res = requests.post(url, data=data, headers=headers)
+    if res.status_code != 200:
+        return ''
+    res = json.loads(res.text)
+    if 'trans_result' not in res:
+        return ''
+    result = ''
+    for trans in res['trans_result']:
+        result += trans['dst'] + '。'
+    return result
+
+
+# TODO
+# 有点儿问题, 翻译的结果为多行的时候解决比较麻烦
+def googleTranslate(text: str, zhcn2en: bool = True) -> str:
+    """
+    将中文翻译成英文
+    :param text: 中文/英文
+    :param zhcn2en : 是否为中文转英文, 默认为是
+    :return: 英文/中文
+    """
+    global proxies
+    global verify
+    text = text.replace('\n', r'\\n').replace('"', r'\\\"')
+    url = 'https://translate.google.cn/_/TranslateWebserverUi/data/batchexecute'
+    if zhcn2en:
+        data = '[[["MkEWBc","[[\\"{}\\",\\"zh-CN\\",\\"en\\",true],[null]]",null,"generic"]]]'.format(text)
+    else:
+        data = '[[["MkEWBc","[[\\"{}\\",\\"en\\",\\"zh-CN\\",true],[null]]",null,"generic"]]]'.format(text)
+    data = quote(data)
+    data = 'f.req=' + data + '&'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7'}
+    res = requests.post(url=url, data=data, headers=headers, verify=verify, proxies=proxies)
+    if res.status_code != 200:
+        return ''
+    lIndex = res.text.find('l,[[\\"')
+    rIndex = res.text.find('\\"', lIndex + len('l,[[\\"'))
+    if lIndex != -1 and rIndex != -1:
+        text = res.text[lIndex + len('l,[[\\"'):rIndex]
+        text = text.replace(r'\\n', '\n').replace(r'\\\"', '"')
+        return text
+    return ''
+
+
+def getTips(text: str) -> str:
+    """
+    获取指定文本的生成文本信息
+    :param text: 线索文本
+    :return: 生成的文本
+    """
+    global proxies
+    global verify
+    # 中文 -> 英文
+    text = baiduTranslate(text)
+    if text == '':
+        return ''
+    # 获取生成文本结果
+    url = 'https://api.deepai.org/api/text-generator'
+    data = {'text': text}
+    headers = {'api-key': APIKEY}
+    res = requests.post(url, files=data, headers=headers, verify=verify, proxies=proxies)
+    if res.status_code != 200:
+        return ''
+    res = json.loads(res.text)
+    if 'output' not in res:
+        return ''
+    text = res['output']
+    # 英文 -> 中文
+    text = baiduTranslate(text, zhcn2en=False).replace('\n\n', '\n')
+    return text
+
+
+def setProxies(switch: bool=False) -> None:
+    """
+    是否采用代理
+    :param switch: 是
+    :return: None
+    """
+    global proxies
+    global verify
+    if switch:
+        proxies = {'https': '127.0.0.1:8887',
+                   'http': '127.0.0.1:8887'}
+        verify = False
+    else:
+        proxies = None
+        verify = True
