@@ -47,7 +47,7 @@ class getTipsThread(QThread):
         self.signal.emit(text)
         '''
 
-        text = getPredictText(self.text.replace('\n', ''), length=50)
+        text = getPredictText(self.text.replace('\n', ''), length=500)
         self.signal.emit(text)
 
 

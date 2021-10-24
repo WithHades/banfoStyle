@@ -24,3 +24,7 @@ def getPredictText(text: str, length: int = 200) -> str:
     # 使用tokenizer将生成的id转为文本
     generatedText = tokenizer.convert_ids_to_string(ids)
     return generatedText
+
+
+getPredictText('开始预测模型会先初始化一下, 抵消掉这个时间')
+

@@ -134,7 +134,10 @@ def getBaiduImgPath(text: str) -> [Iterable, None]:
     res = requests.get(url, headers=headers, verify=False)
     if res.status_code != 200:
         return None
-    jsonData = json.loads(res.text)
+    try:
+        jsonData = json.loads(res.text)
+    except:
+        return None
     if 'data' not in jsonData:
         return None
     data = jsonData['data']
@@ -182,7 +185,10 @@ def getDoutulaImgPath(text: str) -> [Iterable, None]:
     randomPics = soup.find_all('a', attrs={'class': 'col-xs-6 col-md-2'})
     for pic in randomPics:
         imgUrl = pic.find('img', attrs={'referrerpolicy': 'no-referrer'})['data-original']
-        res = requests.get(imgUrl)
+        try:
+            res = requests.get(imgUrl)
+        except:
+            return None
         if res.status_code != 200:
             continue
         path = os.path.join('tmp', imgUrl[imgUrl.rfind('/') + 1:])
